@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -353,13 +353,61 @@
     </div>
     
     <script>
-        const API_BASE = '../../backend/php/api';
+        function getApiBase() {
+            if (window.location.protocol === 'file:') {
+                return null;
+            }
+
+            const origin = window.location.origin;
+            const path = window.location.pathname.replace(/\\/g, '/');
+
+            if (path.includes('/frontend/pages/')) {
+                const root = path.split('/frontend/pages/')[0];
+                return `${origin}${root}/backend/php/api`;
+            }
+            if (path.includes('/frontend/')) {
+                const root = path.split('/frontend/')[0];
+                return `${origin}${root}/backend/php/api`;
+            }
+
+            return `${origin}/backend/php/api`;
+        }
+
+        async function parseApiResponse(response) {
+            const text = await response.text();
+            let data = null;
+
+            try {
+                data = text ? JSON.parse(text) : null;
+            } catch (e) {
+                data = null;
+            }
+
+            if (!response.ok) {
+                throw new Error((data && data.error) ? data.error : `Request failed (${response.status})`);
+            }
+
+            if (!data || typeof data !== 'object') {
+                throw new Error('Invalid API response');
+            }
+
+            return data;
+        }
+
+        const API_BASE = getApiBase();
         
         // Check if already logged in
         document.addEventListener('DOMContentLoaded', async () => {
+            const loginError = document.getElementById('loginError');
+            if (!API_BASE) {
+                loginError.textContent = 'App is opened as a local file. Please use the web server URL.';
+                loginError.classList.add('show');
+                return;
+            }
+
             try {
                 const response = await fetch(`${API_BASE}/auth.php`);
-                const data = await response.json();
+                const data = await parseApiResponse(response);
                 
                 if (data.success && data.data.logged_in) {
                     window.location.href = '../index.html';
@@ -385,6 +433,10 @@
             loginBtn.textContent = 'Authenticating...';
             
             try {
+                if (!API_BASE) {
+                    throw new Error('App is opened as a local file. Please use the web server URL.');
+                }
+
                 const response = await fetch(`${API_BASE}/auth.php`, {
                     method: 'POST',
                     headers: {
@@ -397,7 +449,7 @@
                     })
                 });
                 
-                const data = await response.json();
+                const data = await parseApiResponse(response);
                 
                 if (data.success) {
                     // Store user info
@@ -416,7 +468,9 @@
                 }
             } catch (error) {
                 console.error('Login error:', error);
-                loginError.textContent = 'Connection error. Please check your network.';
+                loginError.textContent = error && error.message
+                    ? error.message
+                    : 'Connection error. Please check your network.';
                 loginError.classList.add('show');
                 
                 // Reset button
@@ -440,7 +494,6 @@
     </script>
 </body>
 </html>
-
 
 
 
