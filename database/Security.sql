@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS sensors (
     max_value DECIMAL(10, 2),
     threshold_alert DECIMAL(10, 2),
     unit VARCHAR(20),
-    last_value TEXT,
+    `last_value` TEXT,
     last_reading DATETIME,
     gpio_pin INT,
     esp32_id VARCHAR(50),
