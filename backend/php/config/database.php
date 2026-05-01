@@ -21,6 +21,30 @@ function isPlaceholderValue(string $value): bool {
         || preg_match('/^YOUR[_-]/i', $value) === 1;
 }
 
+function parseBoolValue($value, bool $default = false): bool {
+    if ($value === null || $value === false) {
+        return $default;
+    }
+
+    $normalized = strtolower(trim((string) $value));
+    if ($normalized === '') {
+        return $default;
+    }
+
+    if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+        return true;
+    }
+    if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+        return false;
+    }
+
+    return $default;
+}
+
+function isTiDBCloudHost(string $host): bool {
+    return stripos($host, 'tidbcloud.com') !== false;
+}
+
 function getEnvOrDefault(string $key, string $default): string {
     $value = getenv($key);
     if ($value === false) {
@@ -33,7 +57,7 @@ function getEnvOrDefault(string $key, string $default): string {
     }
 
     // Ignore placeholder values often copied from templates.
-     if (isPlaceholderValue($value)) {
+    if (isPlaceholderValue($value)) {
         return $default;
     }
 
@@ -46,7 +70,10 @@ $dbConfig = [
     'user' => getEnvOrDefault('DB_USER', '3aXyNB5EvYK7Qz8.root'),
     'pass' => getEnvOrDefault('DB_PASS', 'obBLoUmeE8rpu8GK'),
     'charset' => getEnvOrDefault('DB_CHARSET', 'utf8mb4'),
-    'port' => (int) getEnvOrDefault('DB_PORT', '4000')
+    'port' => (int) getEnvOrDefault('DB_PORT', '4000'),
+    'ssl_mode' => strtolower(getEnvOrDefault('DB_SSL_MODE', '')),
+    'ssl_ca' => trim((string) (getenv('DB_SSL_CA') ?: '')),
+    'ssl_verify' => parseBoolValue(getenv('DB_SSL_VERIFY'), true)
 ];
 
 $databaseUrl = trim((string) (getenv('DATABASE_URL') ?: getenv('DB_URL') ?: ''));
@@ -76,8 +103,33 @@ if ($databaseUrl !== '' && !isPlaceholderValue($databaseUrl)) {
             if (!empty($query['charset']) && !isPlaceholderValue((string) $query['charset'])) {
                 $dbConfig['charset'] = (string) $query['charset'];
             }
+            if (!empty($query['sslmode']) && !isPlaceholderValue((string) $query['sslmode'])) {
+                $dbConfig['ssl_mode'] = strtolower((string) $query['sslmode']);
+            } elseif (!empty($query['ssl_mode']) && !isPlaceholderValue((string) $query['ssl_mode'])) {
+                $dbConfig['ssl_mode'] = strtolower((string) $query['ssl_mode']);
+            }
+            if (!empty($query['ssl_ca']) && !isPlaceholderValue((string) $query['ssl_ca'])) {
+                $dbConfig['ssl_ca'] = (string) $query['ssl_ca'];
+            } elseif (!empty($query['sslca']) && !isPlaceholderValue((string) $query['sslca'])) {
+                $dbConfig['ssl_ca'] = (string) $query['sslca'];
+            }
+            if (array_key_exists('ssl_verify', $query)) {
+                $dbConfig['ssl_verify'] = parseBoolValue($query['ssl_verify'], $dbConfig['ssl_verify']);
+            }
         }
     }
+}
+
+if (isPlaceholderValue($dbConfig['ssl_ca'])) {
+    $dbConfig['ssl_ca'] = '';
+}
+
+$sslEnabled = parseBoolValue(getenv('DB_SSL_ENABLED'), false);
+if (in_array($dbConfig['ssl_mode'], ['required', 'require', 'verify_ca', 'verify_identity'], true)) {
+    $sslEnabled = true;
+}
+if (!$sslEnabled && isTiDBCloudHost($dbConfig['host'])) {
+    $sslEnabled = true;
 }
 
 define('DB_HOST', $dbConfig['host']);
@@ -86,7 +138,10 @@ define('DB_USER', $dbConfig['user']);
 define('DB_PASS', $dbConfig['pass']);
 define('DB_CHARSET', $dbConfig['charset']);
 define('DB_PORT', $dbConfig['port']);
-
+define('DB_SSL_ENABLED', $sslEnabled);
+define('DB_SSL_MODE', $dbConfig['ssl_mode']);
+define('DB_SSL_CA', $dbConfig['ssl_ca']);
+define('DB_SSL_VERIFY', $dbConfig['ssl_verify']);
 
 
 /**
@@ -105,6 +160,20 @@ class Database {
                 PDO::ATTR_EMULATE_PREPARES   => false,
                 PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . DB_CHARSET
             ];
+
+            if (DB_SSL_ENABLED) {
+                if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+                    $verifyServerCert = DB_SSL_VERIFY;
+                    if (DB_SSL_MODE === 'required' || DB_SSL_MODE === 'require') {
+                        $verifyServerCert = false;
+                    }
+                    $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = $verifyServerCert;
+                }
+
+                if (DB_SSL_CA !== '' && defined('PDO::MYSQL_ATTR_SSL_CA')) {
+                    $options[PDO::MYSQL_ATTR_SSL_CA] = DB_SSL_CA;
+                }
+            }
             
             $this->connection = new PDO($dsn, DB_USER, DB_PASS, $options);
         } catch (PDOException $e) {
