@@ -13,8 +13,8 @@ RUN mkdir -p /var/www/html/logs \
     && chown -R www-data:www-data /var/www/html/logs \
     && chmod -R 775 /var/www/html/logs
     
-# Redirect root URL to dashboard frontend entrypoint.
-RUN printf '%s\n' '<?php header("Location: /frontend/index.html"); exit; ?>' > /var/www/html/index.php
+# Redirect root URL to login page.
+RUN printf '%s\n' '<?php header("Location: /frontend/pages/login.html"); exit; ?>' > /var/www/html/index.php
 
 EXPOSE 10000
 
