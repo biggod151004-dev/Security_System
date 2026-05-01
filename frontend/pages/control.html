@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control - J.A.R.V.I.S Security</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="../css/animations.css">
+</head>
+<body>
+    <div class="particles" id="particles"></div>
+
+    <div class="app-container">
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <div class="logo-ring"></div>
+                    <div class="logo-ring"></div>
+                    <div class="logo-ring"></div>
+                    <div class="logo-core"></div>
+                </div>
+                <div class="logo-text">JARVIS</div>
+                <div class="logo-subtitle">Security System</div>
+            </div>
+
+            <div class="nav-menu">
+                <a href="../index.html" class="nav-item"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span><span class="nav-text">Dashboard</span></a>
+                <a href="sensors.html" class="nav-item"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></span><span class="nav-text">Sensors</span></a>
+                <a href="threats.html" class="nav-item"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg></span><span class="nav-text">Threats</span></a>
+                <a href="logs.html" class="nav-item"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg></span><span class="nav-text">Logs</span></a>
+                <a href="blockchain.html" class="nav-item"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg></span><span class="nav-text">Blockchain</span></a>
+                <a href="control.html" class="nav-item active"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span><span class="nav-text">Control</span></a>
+                <a href="camera.html" class="nav-item"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></span><span class="nav-text">Live Camera</span></a>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="voice-control-btn" id="voiceControlBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                    Voice Command
+                </button>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <header class="top-header">
+                <div class="page-title">
+                    <h1>System Control</h1>
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Loading control state</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+                    <button class="btn btn-secondary" onclick="resetSettings()">Refresh</button>
+                </div>
+            </header>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Security Mode</h3>
+                    <span class="badge success" id="securityModeStatus">Loading</span>
+                </div>
+                <div class="card-body">
+                    <div class="control-grid">
+                        <div class="control-item" style="cursor:pointer;" onclick="setSecurityMode('armed')">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg></div>
+                            <div class="control-name">Armed</div>
+                            <p style="font-size:0.8rem;color:var(--text-secondary);">All sensors active and alerts enabled.</p>
+                        </div>
+                        <div class="control-item" style="cursor:pointer;" onclick="setSecurityMode('standby')">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>
+                            <div class="control-name">Standby</div>
+                            <p style="font-size:0.8rem;color:var(--text-secondary);">Monitoring on, manual response mode.</p>
+                        </div>
+                        <div class="control-item" style="cursor:pointer;" onclick="setSecurityMode('disarmed')">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z"/></svg></div>
+                            <div class="control-name">Disarmed</div>
+                            <p style="font-size:0.8rem;color:var(--text-secondary);">Security off, logging remains active.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Door Lock & Valve Controls</h3>
+                    <span class="badge info">Live Actuators</span>
+                </div>
+                <div class="card-body">
+                    <div class="control-grid" id="actuatorControlGrid"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Quick Actions</h3>
+                </div>
+                <div class="card-body">
+                    <div class="control-grid">
+                        <div class="control-item">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
+                            <div class="control-name">Camera System</div>
+                            <div class="control-actions"><button class="btn btn-secondary" onclick="window.location.href='camera.html'">Open</button></div>
+                        </div>
+                        <div class="control-item">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>
+                            <div class="control-name">Alarm Test</div>
+                            <div class="control-actions"><button class="btn btn-danger" onclick="triggerAlarm()">Test Alarm</button></div>
+                        </div>
+                        <div class="control-item">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg></div>
+                            <div class="control-name">Emergency Contacts</div>
+                            <div class="control-actions"><button class="btn btn-secondary" onclick="emergencyContacts()">Show</button></div>
+                        </div>
+                        <div class="control-item">
+                            <div class="control-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg></div>
+                            <div class="control-name">System Report</div>
+                            <div class="control-actions"><button class="btn btn-secondary" onclick="systemReport()">Refresh</button></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="voice-modal" id="voiceModal">
+        <div class="voice-modal-content">
+            <div class="voice-animation"><div class="voice-wave"></div><div class="voice-wave"></div><div class="voice-wave"></div></div>
+            <div class="voice-text">Listening...</div>
+            <div class="voice-transcript" id="voiceTranscript">Say a command...</div>
+            <button class="btn btn-secondary" style="margin-top: 30px;" onclick="closeVoiceModal()">Cancel</button>
+        </div>
+    </div>
+
+    <div class="jarvis-chat">
+        <button class="jarvis-chat-btn" id="jarvisChatBtn"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg></button>
+        <div class="jarvis-chat-window" id="jarvisChatWindow">
+            <div class="jarvis-chat-header"><span class="jarvis-chat-title">JARVIS AI Assistant</span><button class="jarvis-chat-close" onclick="toggleJarvisChat()">×</button></div>
+            <div class="jarvis-chat-messages" id="chatMessages">
+                <div class="chat-message jarvis"><div class="message-bubble">Control panel ready. You can arm, disarm, test the alarm, or switch the door lock and valve.</div></div>
+            </div>
+            <div class="jarvis-chat-input">
+                <input type="text" id="chatInput" placeholder="Ask JARVIS..." onkeypress="handleChatKeypress(event)">
+                <button onclick="sendChatMessage()"><svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/app.js"></script>
+    <script src="../js/voice.js"></script>
+    <script src="../js/jarvis.js"></script>
+    <script src="../js/pages.js"></script>
+    <script src="../js/realtime.js"></script>
+</body>
+</html>

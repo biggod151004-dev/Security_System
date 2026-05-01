@@ -1,0 +1,2 @@
+[2026-04-26 21:15:26] [INFO] Camera action executed | {"action":"start_stream","camera_id":"CAM-001"}
+[2026-04-26 21:15:27] [INFO] Camera action executed | {"action":"stop_stream","camera_id":"CAM-001"}

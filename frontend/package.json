@@ -1,0 +1,33 @@
+﻿{
+  "name": "jarvis-security-dashboard",
+  "version": "1.0.1",
+  "description": "JARVIS Security Dashboard - AI-powered security monitoring frontend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "lint:js": "node --check js/app.js && node --check js/jarvis.js && node --check js/realtime.js && node --check js/voice.js && node --check js/pages.js && node --check server.js",
+    "test:frontend": "powershell -ExecutionPolicy Bypass -File ../scripts/test-frontend.ps1",
+    "test:php": "powershell -ExecutionPolicy Bypass -File ../scripts/test-php.ps1",
+    "test:all": "powershell -ExecutionPolicy Bypass -File ../scripts/test-all.ps1",
+    "test": "npm run lint:js"
+  },
+  "keywords": [
+    "jarvis",
+    "security",
+    "dashboard",
+    "iot",
+    "monitoring",
+    "ai"
+  ],
+  "author": "NinjaTech AI",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
