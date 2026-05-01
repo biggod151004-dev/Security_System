@@ -16,6 +16,11 @@ if (!defined('JARVIS_SECURE')) {
 }
 
 // Database Configuration
+function isPlaceholderValue(string $value): bool {
+    return preg_match('/^<[^>]+>$/', $value) === 1
+        || preg_match('/^YOUR[_-]/i', $value) === 1;
+}
+
 function getEnvOrDefault(string $key, string $default): string {
     $value = getenv($key);
     if ($value === false) {
@@ -28,19 +33,59 @@ function getEnvOrDefault(string $key, string $default): string {
     }
 
     // Ignore placeholder values often copied from templates.
-    if (preg_match('/^<[^>]+>$/', $value) === 1 || preg_match('/^YOUR[_-]/i', $value) === 1) {
+     if (isPlaceholderValue($value)) {
         return $default;
     }
 
     return $value;
 }
 
-define('DB_HOST', getEnvOrDefault('DB_HOST', 'gateway01.ap-southeast-1.prod.alicloud.tidbcloud.com'));
-define('DB_NAME', getEnvOrDefault('DB_NAME', 'security_system'));
-define('DB_USER', getEnvOrDefault('DB_USER', '3aXyNB5EvYK7Qz8.root'));
-define('DB_PASS', getEnvOrDefault('DB_PASS', 'obBLoUmeE8rpu8GK'));
-define('DB_CHARSET', getEnvOrDefault('DB_CHARSET', 'utf8mb4'));
-define('DB_PORT', (int) getEnvOrDefault('DB_PORT', '4000'));
+$dbConfig = [
+    'host' => getEnvOrDefault('DB_HOST', 'gateway01.ap-southeast-1.prod.alicloud.tidbcloud.com'),
+    'name' => getEnvOrDefault('DB_NAME', 'security_system'),
+    'user' => getEnvOrDefault('DB_USER', '3aXyNB5EvYK7Qz8.root'),
+    'pass' => getEnvOrDefault('DB_PASS', 'obBLoUmeE8rpu8GK'),
+    'charset' => getEnvOrDefault('DB_CHARSET', 'utf8mb4'),
+    'port' => (int) getEnvOrDefault('DB_PORT', '4000')
+];
+
+$databaseUrl = trim((string) (getenv('DATABASE_URL') ?: getenv('DB_URL') ?: ''));
+if ($databaseUrl !== '' && !isPlaceholderValue($databaseUrl)) {
+    $parts = parse_url($databaseUrl);
+    if ($parts !== false && (($parts['scheme'] ?? '') === 'mysql')) {
+        if (!empty($parts['host']) && !isPlaceholderValue((string) $parts['host'])) {
+            $dbConfig['host'] = (string) $parts['host'];
+        }
+        if (!empty($parts['port'])) {
+            $dbConfig['port'] = (int) $parts['port'];
+        }
+        if (!empty($parts['user']) && !isPlaceholderValue((string) $parts['user'])) {
+            $dbConfig['user'] = urldecode((string) $parts['user']);
+        }
+        if (array_key_exists('pass', $parts) && !isPlaceholderValue((string) $parts['pass'])) {
+            $dbConfig['pass'] = urldecode((string) $parts['pass']);
+        }
+        if (!empty($parts['path'])) {
+            $dbName = ltrim((string) $parts['path'], '/');
+            if ($dbName !== '' && !isPlaceholderValue($dbName)) {
+                $dbConfig['name'] = $dbName;
+            }
+        }
+        if (!empty($parts['query'])) {
+            parse_str((string) $parts['query'], $query);
+            if (!empty($query['charset']) && !isPlaceholderValue((string) $query['charset'])) {
+                $dbConfig['charset'] = (string) $query['charset'];
+            }
+        }
+    }
+}
+
+define('DB_HOST', $dbConfig['host']);
+define('DB_NAME', $dbConfig['name']);
+define('DB_USER', $dbConfig['user']);
+define('DB_PASS', $dbConfig['pass']);
+define('DB_CHARSET', $dbConfig['charset']);
+define('DB_PORT', $dbConfig['port']);
 
 
 
