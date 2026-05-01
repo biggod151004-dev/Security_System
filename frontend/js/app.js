@@ -1,4 +1,4 @@
-﻿/**
+/**
  * JARVIS Security Dashboard - Core App Runtime
  */
 (function () {
@@ -348,10 +348,20 @@
         } finally {
             sessionStorage.removeItem('user');
             sessionStorage.removeItem('jarvis_welcomed');
+            localStorage.removeItem('user');
+            localStorage.removeItem('jarvis_welcomed');
 
             const path = window.location.pathname.replace(/\\/g, '/');
-            const loginPath = path.includes('/frontend/pages/') ? 'login.html' : 'pages/login.html';
-            window.location.href = loginPath;
+            let loginPath = '/frontend/pages/login.html';
+            if (path.includes('/frontend/pages/')) {
+                const root = path.split('/frontend/pages/')[0];
+                loginPath = `${root}/frontend/pages/login.html`;
+            } else if (path.includes('/frontend/')) {
+                const root = path.split('/frontend/')[0];
+                loginPath = `${root}/frontend/pages/login.html`;
+            }
+
+            window.location.href = `${loginPath}?logged_out=1&t=${Date.now()}`;
         }
     }
 
