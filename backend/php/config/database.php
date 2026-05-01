@@ -166,6 +166,7 @@ define('DB_SSL_ENABLED', $sslEnabled);
 define('DB_SSL_MODE', $dbConfig['ssl_mode']);
 define('DB_SSL_CA', $dbConfig['ssl_ca']);
 define('DB_SSL_VERIFY', $dbConfig['ssl_verify']);
+define('DB_AUTO_CREATE', parseBoolValue(getenv('DB_AUTO_CREATE'), true));
 
 
 /**
@@ -174,36 +175,64 @@ define('DB_SSL_VERIFY', $dbConfig['ssl_verify']);
 class Database {
     private static $instance = null;
     private $connection;
+
+    private function buildPdoOptions(): array {
+        $options = [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . DB_CHARSET
+        ];
+
+        if (DB_SSL_ENABLED) {
+            if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+                $verifyServerCert = DB_SSL_VERIFY;
+                if (DB_SSL_MODE === 'required' || DB_SSL_MODE === 'require') {
+                    $verifyServerCert = false;
+                }
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = $verifyServerCert;
+            }
+
+            if (DB_SSL_CA !== '' && defined('PDO::MYSQL_ATTR_SSL_CA')) {
+                $options[PDO::MYSQL_ATTR_SSL_CA] = DB_SSL_CA;
+            }
+        }
+
+        return $options;
+    }
+
+    private function ensureDatabaseExists(): void {
+        $dsnWithoutDb = "mysql:host=" . DB_HOST . ";charset=" . DB_CHARSET . ";port=" . DB_PORT;
+        $pdo = new PDO($dsnWithoutDb, DB_USER, DB_PASS, $this->buildPdoOptions());
+        $safeDbName = str_replace('`', '``', DB_NAME);
+        $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$safeDbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    }
     
     private function __construct() {
+        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET . ";port=" . DB_PORT;
         try {
-            $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET . ";port=" . DB_PORT;
-            $options = [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES   => false,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . DB_CHARSET
-            ];
+            $this->connection = new PDO($dsn, DB_USER, DB_PASS, $this->buildPdoOptions());
+        } catch (PDOException $e) {
+            $message = $e->getMessage();
+            $unknownDb = strpos($message, 'Unknown database') !== false;
 
-            if (DB_SSL_ENABLED) {
-                if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
-                    $verifyServerCert = DB_SSL_VERIFY;
-                    if (DB_SSL_MODE === 'required' || DB_SSL_MODE === 'require') {
-                        $verifyServerCert = false;
+            if ($unknownDb && DB_AUTO_CREATE) {
+                try {
+                    $this->ensureDatabaseExists();
+                    $this->connection = new PDO($dsn, DB_USER, DB_PASS, $this->buildPdoOptions());
+                    return;
+                } catch (PDOException $createError) {
+                    error_log("Database Auto-Create Error: " . $createError->getMessage());
+                    if (defined('APP_DEBUG') && APP_DEBUG) {
+                        throw new Exception("Database connection failed: " . $createError->getMessage(), 0, $createError);
                     }
-                    $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = $verifyServerCert;
-                }
-
-                if (DB_SSL_CA !== '' && defined('PDO::MYSQL_ATTR_SSL_CA')) {
-                    $options[PDO::MYSQL_ATTR_SSL_CA] = DB_SSL_CA;
+                    throw new Exception("Database connection failed", 0, $createError);
                 }
             }
-            
-            $this->connection = new PDO($dsn, DB_USER, DB_PASS, $options);
-        } catch (PDOException $e) {
-            error_log("Database Connection Error: " . $e->getMessage());
+
+            error_log("Database Connection Error: " . $message);
             if (defined('APP_DEBUG') && APP_DEBUG) {
-                throw new Exception("Database connection failed: " . $e->getMessage(), 0, $e);
+                throw new Exception("Database connection failed: " . $message, 0, $e);
             }
             throw new Exception("Database connection failed", 0, $e);
         }
@@ -223,7 +252,15 @@ class Database {
     public function query($sql, $params = []) {
         try {
             $stmt = $this->connection->prepare($sql);
-            $stmt->execute($params);
+            $normalizedParams = [];
+            foreach ($params as $key => $value) {
+                if (is_bool($value)) {
+                    $normalizedParams[$key] = $value ? 1 : 0;
+                } else {
+                    $normalizedParams[$key] = $value;
+                }
+            }
+            $stmt->execute($normalizedParams);
             return $stmt;
         } catch (PDOException $e) {
             error_log("Query Error: " . $e->getMessage());
