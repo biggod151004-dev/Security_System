@@ -388,7 +388,9 @@
             }
 
             if (!data || typeof data !== 'object') {
-                throw new Error('Invalid API response');
+                const compact = (text || '').replace(/\s+/g, ' ').trim();
+                const preview = compact ? compact.slice(0, 180) : '(empty response)';
+                throw new Error(`Invalid API response: ${preview}`);
             }
 
             return data;
@@ -494,7 +496,6 @@
     </script>
 </body>
 </html>
-
 
 
 
