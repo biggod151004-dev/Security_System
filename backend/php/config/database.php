@@ -45,6 +45,25 @@ function isTiDBCloudHost(string $host): bool {
     return stripos($host, 'tidbcloud.com') !== false;
 }
 
+function resolveDefaultSslCaPath(): string {
+    $candidates = [
+        trim((string) ini_get('openssl.cafile')),
+        trim((string) ini_get('curl.cainfo')),
+        'C:\\xampp\\apache\\bin\\curl-ca-bundle.crt',
+        '/etc/ssl/certs/ca-certificates.crt',
+        '/etc/ssl/cert.pem',
+        '/etc/pki/tls/certs/ca-bundle.crt'
+    ];
+
+    foreach ($candidates as $candidate) {
+        if ($candidate !== '' && is_file($candidate) && is_readable($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return '';
+}
+
 function getEnvOrDefault(string $key, string $default): string {
     $value = getenv($key);
     if ($value === false) {
@@ -130,6 +149,10 @@ if (in_array($dbConfig['ssl_mode'], ['required', 'require', 'verify_ca', 'verify
 }
 if (!$sslEnabled && isTiDBCloudHost($dbConfig['host'])) {
     $sslEnabled = true;
+}
+
+if ($sslEnabled && $dbConfig['ssl_ca'] === '') {
+    $dbConfig['ssl_ca'] = resolveDefaultSslCaPath();
 }
 
 define('DB_HOST', $dbConfig['host']);
