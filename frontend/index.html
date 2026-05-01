@@ -14,7 +14,11 @@
         // Check if user is logged in
         (async function() {
             try {
-                const response = await fetch('../backend/php/api/auth.php');
+                const response = await fetch('../backend/php/api/auth.php', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                });
                 const data = await response.json();
                 if (!data.success || !data.data.logged_in) {
                     window.location.href = 'pages/login.html';
