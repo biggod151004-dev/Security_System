@@ -47,7 +47,7 @@ function isTiDBCloudHost(string $host): bool {
 
 function resolveDefaultSslCaPath(): string {
     $candidates = [
-         __DIR__ . DIRECTORY_SEPARATOR . 'certs' . DIRECTORY_SEPARATOR . 'isrgrootx1.pem',
+        __DIR__ . DIRECTORY_SEPARATOR . 'certs' . DIRECTORY_SEPARATOR . 'isrgrootx1.pem',
         trim((string) ini_get('openssl.cafile')),
         trim((string) ini_get('curl.cainfo')),
         'C:\\xampp\\apache\\bin\\curl-ca-bundle.crt',
@@ -240,10 +240,14 @@ class Database {
         $stmt = $this->query($sql, $params);
         return $stmt->fetchAll();
     }
+
+    private function quoteIdentifier(string $identifier): string {
+        return '`' . str_replace('`', '``', $identifier) . '`';
+    }
     
     public function insert($table, $data) {
         $keys = array_keys($data);
-        $fields = implode(', ', $keys);
+        $fields = implode(', ', array_map(fn ($key) => $this->quoteIdentifier((string) $key), $keys));
         $placeholders = ':' . implode(', :', $keys);
         
         $sql = "INSERT INTO {$table} ({$fields}) VALUES ({$placeholders})";
@@ -255,7 +259,7 @@ class Database {
     public function update($table, $data, $where, $whereParams = []) {
         $sets = [];
         foreach ($data as $key => $value) {
-            $sets[] = "{$key} = :{$key}";
+            $sets[] = $this->quoteIdentifier((string) $key) . " = :{$key}";
         }
         $setClause = implode(', ', $sets);
         
