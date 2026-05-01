@@ -16,12 +16,13 @@ if (!defined('JARVIS_SECURE')) {
 }
 
 // Database Configuration
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'security_system');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_CHARSET', 'utf8mb4');
-define('DB_PORT', 3306);
+define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+define('DB_NAME', getenv('DB_NAME') ?: 'security_system');
+define('DB_USER', getenv('DB_USER') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
+define('DB_CHARSET', getenv('DB_CHARSET') ?: 'utf8mb4');
+define('DB_PORT', (int)(getenv('DB_PORT') ?: 3306));
+
 
 /**
  * Database Connection Class
