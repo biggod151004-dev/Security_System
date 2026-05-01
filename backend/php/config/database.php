@@ -47,6 +47,7 @@ function isTiDBCloudHost(string $host): bool {
 
 function resolveDefaultSslCaPath(): string {
     $candidates = [
+         __DIR__ . DIRECTORY_SEPARATOR . 'certs' . DIRECTORY_SEPARATOR . 'isrgrootx1.pem',
         trim((string) ini_get('openssl.cafile')),
         trim((string) ini_get('curl.cainfo')),
         'C:\\xampp\\apache\\bin\\curl-ca-bundle.crt',
