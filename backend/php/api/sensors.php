@@ -298,7 +298,7 @@ function clearTemporarySensorData($db, array $input): array
         )->rowCount();
 
         $resetSensors = $db->query(
-            "UPDATE sensors SET last_value = NULL, last_reading = NULL WHERE sensor_id IN ({$sensorClause})",
+            "UPDATE sensors SET `last_value` = NULL, last_reading = NULL WHERE sensor_id IN ({$sensorClause})",
             $sensorParams
         )->rowCount();
 
