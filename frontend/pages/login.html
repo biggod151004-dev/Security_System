@@ -401,19 +401,38 @@
         // Check if already logged in
         document.addEventListener('DOMContentLoaded', async () => {
             const loginError = document.getElementById('loginError');
+            const params = new URLSearchParams(window.location.search);
+            const isManualLogout = params.get('logged_out') === '1';
+
             if (!API_BASE) {
                 loginError.textContent = 'App is opened as a local file. Please use the web server URL.';
                 loginError.classList.add('show');
                 return;
             }
 
+            if (isManualLogout) {
+                try {
+                    await fetch(`${API_BASE}/auth.php`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'logout' })
+                    });
+                } catch (e) {
+                    // Ignore; we still stay on login screen.
+                }
+
+                sessionStorage.removeItem('user');
+                sessionStorage.removeItem('jarvis_welcomed');
+                localStorage.removeItem('user');
+                localStorage.removeItem('jarvis_welcomed');
+                return;
+            }
+
             try {
                 const response = await fetch(`${API_BASE}/auth.php`);
                 const data = await parseApiResponse(response);
-                
-                if (data.success && data.data.logged_in) {
-                    window.location.href = '../index.html';
-                }
+                // Intentionally do not auto-redirect to dashboard.
+                // User must explicitly sign in from this page.
             } catch (error) {
                 console.error('Auth check error:', error);
             }
@@ -496,6 +515,4 @@
     </script>
 </body>
 </html>
-
-
 
