@@ -16,12 +16,32 @@ if (!defined('JARVIS_SECURE')) {
 }
 
 // Database Configuration
-define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('DB_NAME') ?: 'security_system');
-define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: '');
-define('DB_CHARSET', getenv('DB_CHARSET') ?: 'utf8mb4');
-define('DB_PORT', (int)(getenv('DB_PORT') ?: 3306));
+function getEnvOrDefault(string $key, string $default): string {
+    $value = getenv($key);
+    if ($value === false) {
+        return $default;
+    }
+
+    $value = trim((string) $value);
+    if ($value === '') {
+        return $default;
+    }
+
+    // Ignore placeholder values often copied from templates.
+    if (preg_match('/^<[^>]+>$/', $value) === 1 || preg_match('/^YOUR[_-]/i', $value) === 1) {
+        return $default;
+    }
+
+    return $value;
+}
+
+define('DB_HOST', getEnvOrDefault('DB_HOST', 'gateway01.ap-southeast-1.prod.alicloud.tidbcloud.com'));
+define('DB_NAME', getEnvOrDefault('DB_NAME', 'security_system'));
+define('DB_USER', getEnvOrDefault('DB_USER', '3aXyNB5EvYK7Qz8.root'));
+define('DB_PASS', getEnvOrDefault('DB_PASS', 'obBLoUmeE8rpu8GK'));
+define('DB_CHARSET', getEnvOrDefault('DB_CHARSET', 'utf8mb4'));
+define('DB_PORT', (int) getEnvOrDefault('DB_PORT', '4000'));
+
 
 
 /**
