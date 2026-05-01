@@ -49,7 +49,7 @@ define('CORS_ALLOWED_ORIGINS', '*');
 define('CORS_ALLOWED_METHODS', 'GET, POST, PUT, DELETE, OPTIONS');
 define('CORS_ALLOWED_HEADERS', 'Content-Type, Authorization, X-API-Key');
 
-define('LOG_PATH', __DIR__ . '/../../../logs/');
+define('LOG_PATH', getenv('LOG_PATH') ?: (__DIR__ . '/../../../logs/'));
 define('LOG_LEVEL', 'DEBUG');
 define('LOG_MAX_SIZE', 10485760);
 define('LOG_RETENTION_DAYS', 90);
@@ -126,16 +126,28 @@ function successResponse($data = [], string $message = 'Success'): void {
 }
 
 function logMessage(string $level, string $message, array $context = []): void {
-    $logFile = LOG_PATH . date('Y-m-d') . '.log';
+    $baseLogPath = rtrim(LOG_PATH, '/\\');
+    $fallbackPath = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'jarvis-logs';
+    $logDir = $baseLogPath !== '' ? $baseLogPath : $fallbackPath;
+
     $timestamp = date('Y-m-d H:i:s');
     $contextStr = !empty($context) ? ' | ' . json_encode($context) : '';
     $line = "[{$timestamp}] [{$level}] {$message}{$contextStr}\n";
+    $logFile = $logDir . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log';
 
-    if (!is_dir(LOG_PATH)) {
-        mkdir(LOG_PATH, 0755, true);
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
     }
 
-    file_put_contents($logFile, $line, FILE_APPEND);
+    if (is_dir($logDir) && is_writable($logDir)) {
+        $written = @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+        if ($written !== false) {
+            return;
+        }
+    }
+
+    // Never crash request handling because file logging is unavailable.
+    error_log(trim($line));
 }
 
 function getClientIP(): string {
