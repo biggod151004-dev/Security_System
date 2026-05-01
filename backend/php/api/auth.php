@@ -259,7 +259,7 @@ function handleLogout($db, bool $sendResponse = true): void
     if (isset($_SESSION['user_id'])) {
         $db->update(
             'user_sessions',
-            ['is_active' => false],
+            ['is_active' => 0],
             'session_id = :session_id',
             ['session_id' => session_id()]
         );
@@ -271,7 +271,19 @@ function handleLogout($db, bool $sendResponse = true): void
 
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], (bool) $params['secure'], (bool) $params['httponly']);
+        $expire = time() - 42000;
+        $cookieName = session_name();
+        $cookiePath = $params['path'] ?: '/';
+        $cookieDomain = $params['domain'] ?? '';
+        $cookieSecure = (bool) ($params['secure'] ?? false);
+        $cookieHttpOnly = (bool) ($params['httponly'] ?? true);
+
+        // Expire using configured path/domain.
+        setcookie($cookieName, '', $expire, $cookiePath, $cookieDomain, $cookieSecure, $cookieHttpOnly);
+        // Also expire using root path as a safety net for mismatched cookie paths.
+        if ($cookiePath !== '/') {
+            setcookie($cookieName, '', $expire, '/', $cookieDomain, $cookieSecure, $cookieHttpOnly);
+        }
     }
 
     session_destroy();
