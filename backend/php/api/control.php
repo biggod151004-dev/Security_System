@@ -61,19 +61,18 @@ function ensureDefaultActuators($db): void {
 
 function ensureAccessControlSettings($db): void
 {
+    $recommendedProfiles = getRecommendedAccessProfiles();
+
     ensureSetting(
         $db,
         'access_profiles',
-        json_encode([
-            ['name' => 'Admin Access', 'rfid_uid' => 'RFID-1001', 'fingerprint_id' => 'FP-501', 'role' => 'Administrator'],
-            ['name' => 'Security Officer', 'rfid_uid' => 'RFID-1002', 'fingerprint_id' => 'FP-502', 'role' => 'Security'],
-            ['name' => 'Operations Lead', 'rfid_uid' => 'RFID-1003', 'fingerprint_id' => 'FP-503', 'role' => 'Operations'],
-        ], JSON_UNESCAPED_SLASHES),
+        json_encode($recommendedProfiles, JSON_UNESCAPED_SLASHES),
         'json',
         'security',
         'RFID and fingerprint pairs allowed to unlock the main door.',
         false
     );
+    migrateLegacyAccessProfiles($db, $recommendedProfiles);
 
     ensureSetting(
         $db,
@@ -93,6 +92,51 @@ function ensureAccessControlSettings($db): void
         'security',
         'How long the main door should stay unlocked after a successful dual scan.',
         false
+    );
+}
+
+function getRecommendedAccessProfiles(): array
+{
+    return [
+        ['name' => 'Admin Access', 'rfid_uid' => '61E75517', 'fingerprint_id' => 'FP-501', 'role' => 'Administrator'],
+        ['name' => 'Security Officer', 'rfid_uid' => '75E14F06', 'fingerprint_id' => 'FP-502', 'role' => 'Security'],
+        ['name' => 'Operations Lead', 'rfid_uid' => 'RFID-1003', 'fingerprint_id' => 'FP-503', 'role' => 'Operations'],
+    ];
+}
+
+function isLegacyPlaceholderProfiles(array $profiles): bool
+{
+    if (count($profiles) === 0) {
+        return false;
+    }
+
+    foreach ($profiles as $profile) {
+        $rfid = strtoupper(trim((string) ($profile['rfid_uid'] ?? '')));
+        if (!preg_match('/^RFID-\d+$/', $rfid)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function migrateLegacyAccessProfiles($db, array $recommendedProfiles): void
+{
+    $existing = $db->fetch("SELECT setting_value FROM settings WHERE setting_key = 'access_profiles'");
+    if (!$existing) {
+        return;
+    }
+
+    $profiles = json_decode((string) ($existing['setting_value'] ?? '[]'), true);
+    if (!is_array($profiles) || !isLegacyPlaceholderProfiles($profiles)) {
+        return;
+    }
+
+    $db->update(
+        'settings',
+        ['setting_value' => json_encode($recommendedProfiles, JSON_UNESCAPED_SLASHES)],
+        'setting_key = :setting_key',
+        ['setting_key' => 'access_profiles']
     );
 }
 
