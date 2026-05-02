@@ -28,13 +28,19 @@ const char* WIFI_PASSWORD = "";
 const char* TELEGRAM_BOT_TOKEN = "";
 const char* TELEGRAM_CHAT_ID = "";
 
-// Use the LAN IP or hostname of the machine running the PHP backend.
-// "localhost" points back to the ESP32-CAM itself after flashing.
-const char* API_BASE_URL = "http://localhost:8080/Security_System/backend/php/api/";
+// ESP32-CAM reports camera status/stream URLs to Render API.
+// Render backend persists into TiDB.
+const char* API_BASE_URL = "https://security-system-xxve.onrender.com/backend/php/api/";
 const char* CAMERA_ID = "CAM-001";
 const char* CAMERA_NAME = "ESP32-CAM Main";
 const char* CAMERA_LOCATION = "Main Entrance";
 const char* CAMERA_ZONE = "Zone A";
+// Optional public URLs for cloud dashboard access (Render camera page).
+// Example:
+// const char* PUBLIC_STREAM_URL = "https://<public-host>/stream";
+// const char* PUBLIC_SNAPSHOT_URL = "https://<public-host>/capture?download=1";
+const char* PUBLIC_STREAM_URL = "";
+const char* PUBLIC_SNAPSHOT_URL = "";
 
 constexpr uint8_t FLASH_LED_PIN = 4;
 constexpr unsigned long CAPTURE_COOLDOWN_MS = 5000;
@@ -86,18 +92,29 @@ String localCameraBaseUrl(uint16_t port = 80) {
 }
 
 String getSnapshotUrl() {
+  String publicSnapshot = String(PUBLIC_SNAPSHOT_URL);
+  publicSnapshot.trim();
+  if (publicSnapshot.length() > 0) {
+    return publicSnapshot;
+  }
   return localCameraBaseUrl() + "/capture?download=1";
 }
 
 String getStreamUrl() {
+  String publicStream = String(PUBLIC_STREAM_URL);
+  publicStream.trim();
+  if (publicStream.length() > 0) {
+    return publicStream;
+  }
   return localCameraBaseUrl(STREAM_PORT) + "/stream";
 }
 
 bool postJson(const String& url, const String& body, bool secure = false) {
   HTTPClient http;
   bool started = false;
+  const bool useSecure = secure || url.startsWith("https://");
 
-  if (secure) {
+  if (useSecure) {
     secureClient.setInsecure();
     started = http.begin(secureClient, url);
   } else {
