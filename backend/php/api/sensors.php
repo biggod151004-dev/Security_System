@@ -525,24 +525,32 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
     if ($type === 'vibration' && isVibrationAlert($numericValue, $value, $threshold)) {
         $events[] = createAlertWithSideEffects($db, [
             'type' => 'vibration',
-            'severity' => 'medium',
+            'severity' => 'high',
             'source' => $sensor['sensor_id'],
             'location' => $location,
             'message' => $numericValue !== null
-                ? 'Vibration threshold exceeded: ' . $numericValue . ' g'
-                : 'Vibration detected.',
+                ? 'Suspicious vibration detected: possible tampering (' . $numericValue . ' g)'
+                : 'Suspicious vibration detected: possible tampering.',
             'details' => ['esp32_id' => $esp32Id, 'value' => $numericValue ?? $textValue, 'threshold' => $threshold],
         ]);
     }
 
     if ($type === 'temperature' && $numericValue !== null && $threshold !== null && $numericValue >= $threshold) {
+        $isCriticalTemperature = $numericValue > 45.0;
         $events[] = createAlertWithSideEffects($db, [
             'type' => 'temperature',
-            'severity' => 'high',
+            'severity' => $isCriticalTemperature ? 'critical' : 'high',
             'source' => $sensor['sensor_id'],
             'location' => $location,
-            'message' => 'Temperature threshold exceeded: ' . $numericValue . ' C',
-            'details' => ['esp32_id' => $esp32Id, 'threshold' => $threshold, 'value' => $numericValue],
+            'message' => $isCriticalTemperature
+                ? 'Critical: High temperature detected (' . $numericValue . ' C). Risk of overheating.'
+                : 'Warning: High temperature detected. Temperature rising (' . $numericValue . ' C). Risk of overheating.',
+            'details' => [
+                'esp32_id' => $esp32Id,
+                'threshold' => $threshold,
+                'critical_threshold' => 45.0,
+                'value' => $numericValue,
+            ],
         ]);
     }
 
@@ -560,10 +568,10 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
     if ($type === 'door' && strtoupper($textValue) === 'OPEN') {
         $events[] = createAlertWithSideEffects($db, [
             'type' => 'door',
-            'severity' => 'medium',
+            'severity' => 'high',
             'source' => $sensor['sensor_id'],
             'location' => $location,
-            'message' => 'Door opened.',
+            'message' => 'Warning: Door opened. Unauthorized access detected.',
             'details' => ['esp32_id' => $esp32Id, 'value' => $textValue],
         ]);
     }
