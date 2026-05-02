@@ -14,11 +14,13 @@
             lastPlayedAt: 0
         },
         alertSpeech: {
-            lastSpokenAt: 0
+            lastSpokenAt: 0,
+            lastFireSpokenAt: 0
         }
     };
 
     const ALERT_SPEECH_COOLDOWN_MS = 10000;
+    const FIRE_ALERT_SPEECH_COOLDOWN_MS = 5000;
 
     function getApiBase() {
         const path = window.location.pathname.replace(/\\/g, '/');
@@ -296,18 +298,93 @@
     function initRealtimeAlertSound() {
         window.addEventListener('jarvis:sound-alert', (event) => {
             const detail = event?.detail || {};
+            const now = Date.now();
+
+            if (detail.kind === 'access') {
+                playAlertTone();
+                if (now - AppState.alertSpeech.lastSpokenAt < ALERT_SPEECH_COOLDOWN_MS) {
+                    return;
+                }
+
+                AppState.alertSpeech.lastSpokenAt = now;
+                const accessMessage = 'Warning. Unauthorized access attempt detected.';
+                showNotification('Access Denied Alert', 'Unauthorized access attempt detected. Door remains locked.', 'error');
+                speak(accessMessage);
+                return;
+            }
+
             if (detail.kind !== 'sensor') {
                 return;
             }
             playAlertTone();
 
             const sensors = Array.isArray(detail.sensors) ? detail.sensors : [];
+            const hasFireAlert = sensors.some((sensor) => String(sensor?.type || '').toLowerCase() === 'fire');
+
+            if (hasFireAlert) {
+                if (now - AppState.alertSpeech.lastFireSpokenAt >= FIRE_ALERT_SPEECH_COOLDOWN_MS) {
+                    AppState.alertSpeech.lastFireSpokenAt = now;
+                    AppState.alertSpeech.lastSpokenAt = now;
+                    const fireMessage = 'Emergency. Fire detected in the room. Immediate action required.';
+                    showNotification('Emergency Fire Alert', 'Fire detected in the room. Immediate action required.', 'error');
+                    speak(fireMessage);
+                }
+                return;
+            }
+
             const hasMotionAlert = sensors.some((sensor) => String(sensor?.type || '').toLowerCase() === 'motion');
+            const hasVibrationAlert = sensors.some((sensor) => String(sensor?.type || '').toLowerCase() === 'vibration');
+            const hasDoorAlert = sensors.some((sensor) => String(sensor?.type || '').toLowerCase() === 'door');
+            const temperatureAlerts = sensors.filter((sensor) => String(sensor?.type || '').toLowerCase() === 'temperature');
+            const hasTemperatureAlert = temperatureAlerts.length > 0;
+
+            if (hasTemperatureAlert) {
+                if (now - AppState.alertSpeech.lastSpokenAt >= ALERT_SPEECH_COOLDOWN_MS) {
+                    AppState.alertSpeech.lastSpokenAt = now;
+                    const hasCriticalTemperature = temperatureAlerts.some((sensor) => {
+                        const stage = String(sensor?.alert_stage || '').toLowerCase();
+                        if (stage === 'temperature-critical') {
+                            return true;
+                        }
+                        const numeric = Number.parseFloat(sensor?.numeric_value ?? sensor?.value);
+                        return Number.isFinite(numeric) && numeric > 45;
+                    });
+
+                    if (hasCriticalTemperature) {
+                        showNotification('Critical Temperature Alert', 'Critical: High temperature detected. Risk of overheating.', 'error');
+                        speak('Critical. High temperature detected. Risk of overheating.');
+                    } else {
+                        showNotification('Temperature Warning', 'Warning: High temperature detected. Temperature rising. Risk of overheating.', 'warning');
+                        speak('Warning. High temperature detected. Temperature rising. Risk of overheating.');
+                    }
+                }
+                return;
+            }
+
+            if (hasVibrationAlert) {
+                if (now - AppState.alertSpeech.lastSpokenAt >= ALERT_SPEECH_COOLDOWN_MS) {
+                    AppState.alertSpeech.lastSpokenAt = now;
+                    const tamperMessage = 'Alert. Suspicious vibration detected. Possible tampering.';
+                    showNotification('Tampering Alert', 'Suspicious vibration detected: possible tampering.', 'warning');
+                    speak(tamperMessage);
+                }
+                return;
+            }
+
+            if (hasDoorAlert) {
+                if (now - AppState.alertSpeech.lastSpokenAt >= ALERT_SPEECH_COOLDOWN_MS) {
+                    AppState.alertSpeech.lastSpokenAt = now;
+                    const doorMessage = 'Warning. Door opened. Unauthorized access detected.';
+                    showNotification('Door Alert', 'Warning: Door opened. Unauthorized access detected.', 'warning');
+                    speak(doorMessage);
+                }
+                return;
+            }
+
             if (!hasMotionAlert) {
                 return;
             }
 
-            const now = Date.now();
             if (now - AppState.alertSpeech.lastSpokenAt < ALERT_SPEECH_COOLDOWN_MS) {
                 return;
             }
