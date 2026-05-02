@@ -12,8 +12,13 @@
             context: null,
             unlocked: false,
             lastPlayedAt: 0
+        },
+        alertSpeech: {
+            lastSpokenAt: 0
         }
     };
+
+    const ALERT_SPEECH_COOLDOWN_MS = 10000;
 
     function getApiBase() {
         const path = window.location.pathname.replace(/\\/g, '/');
@@ -295,6 +300,22 @@
                 return;
             }
             playAlertTone();
+
+            const sensors = Array.isArray(detail.sensors) ? detail.sensors : [];
+            const hasMotionAlert = sensors.some((sensor) => String(sensor?.type || '').toLowerCase() === 'motion');
+            if (!hasMotionAlert) {
+                return;
+            }
+
+            const now = Date.now();
+            if (now - AppState.alertSpeech.lastSpokenAt < ALERT_SPEECH_COOLDOWN_MS) {
+                return;
+            }
+
+            AppState.alertSpeech.lastSpokenAt = now;
+            const message = 'Alert. Someone is inside the room.';
+            showNotification('Intrusion Alert', 'PIR detected movement. Someone is inside the room.', 'warning');
+            speak(message);
         });
     }
 
