@@ -374,6 +374,25 @@ function createAccessEventLog($db, string $message, int $severity, array $detail
     return createSystemLog($db, 'ACCESS', 'ACCESS_CONTROL', $message, $severity, $details);
 }
 
+function triggerUnauthorizedAccessAlert($db, string $message, array $details = []): void
+{
+    try {
+        createAlertWithSideEffects($db, [
+            'type' => 'unauthorized_access',
+            'severity' => 'high',
+            'source' => 'ACCESS_CONTROL',
+            'location' => 'Main Entry',
+            'message' => $message,
+            'details' => $details,
+        ]);
+    } catch (Throwable $e) {
+        logMessage('ERROR', 'Failed to create unauthorized access alert', [
+            'error' => $e->getMessage(),
+            'message' => $message,
+        ]);
+    }
+}
+
 function createScanId(): string
 {
     return 'SCAN-' . date('YmdHis') . '-' . str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
@@ -381,9 +400,13 @@ function createScanId(): string
 
 function writeAccessScanFileLog(array $payload): void
 {
-    $scanLogPath = rtrim(LOG_PATH, '/\\') . DIRECTORY_SEPARATOR . 'access_scans.log';
-    if (!is_dir(LOG_PATH)) {
-        mkdir(LOG_PATH, 0755, true);
+    $baseLogPath = rtrim(LOG_PATH, '/\\');
+    $fallbackPath = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'jarvis-logs';
+    $logDir = $baseLogPath !== '' ? $baseLogPath : $fallbackPath;
+    $scanLogPath = $logDir . DIRECTORY_SEPARATOR . 'access_scans.log';
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
     }
 
     $line = json_encode($payload, JSON_UNESCAPED_SLASHES);
@@ -391,7 +414,14 @@ function writeAccessScanFileLog(array $payload): void
         $line = json_encode(['error' => 'Failed to encode payload', 'ts' => date('c')]);
     }
 
-    file_put_contents($scanLogPath, $line . PHP_EOL, FILE_APPEND);
+    if (is_dir($logDir) && is_writable($logDir)) {
+        $written = @file_put_contents($scanLogPath, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+        if ($written !== false) {
+            return;
+        }
+    }
+
+    error_log('[ACCESS_SCAN] ' . $line);
 }
 
 function recordAccessScanEvent(
@@ -545,6 +575,11 @@ function verifyAccess($db, array $input): void
                 'source' => $source,
                 'door_unlocked' => false,
             ]);
+            triggerUnauthorizedAccessAlert($db, "Unauthorized RFID access attempt detected ({$rfidUid}).", [
+                'rfid_uid' => $rfidUid,
+                'source' => $source,
+                'reason' => 'unknown_rfid',
+            ]);
             errorResponse('RFID card not recognized', 403);
         }
 
@@ -606,6 +641,11 @@ function verifyAccess($db, array $input): void
                 'source' => $source,
                 'door_unlocked' => false,
             ]);
+            triggerUnauthorizedAccessAlert($db, "Unauthorized fingerprint attempt detected ({$fingerprintId}) without RFID verification.", [
+                'fingerprint_id' => $fingerprintId,
+                'source' => $source,
+                'reason' => 'missing_pending_rfid',
+            ]);
             errorResponse('Scan RFID card first', 409);
         }
 
@@ -636,6 +676,14 @@ function verifyAccess($db, array $input): void
                 'user_name' => $pending['user_name'],
                 'source' => $source,
                 'door_unlocked' => false,
+            ]);
+            triggerUnauthorizedAccessAlert($db, "Fingerprint mismatch detected for RFID {$pending['rfid_uid']}. Unauthorized access attempt blocked.", [
+                'rfid_uid' => $pending['rfid_uid'],
+                'fingerprint_id' => $fingerprintId,
+                'expected_fingerprint_id' => $pending['fingerprint_id'],
+                'user_name' => $pending['user_name'],
+                'source' => $source,
+                'reason' => 'fingerprint_mismatch',
             ]);
             errorResponse('Fingerprint does not match the scanned RFID card', 403);
         }
