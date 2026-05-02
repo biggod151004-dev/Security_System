@@ -23,7 +23,8 @@
 const char* WIFI_SSID = "";
 const char* WIFI_PASSWORD = "";
 
-const char* API_BASE_URL = "http://localhost:8080/Security_System/backend/php/api/";  // Replace with your backend LAN URL (not localhost) when flashing ESP32.
+// ESP32 sends data to Render API; Render backend persists into TiDB.
+const char* API_BASE_URL = "https://security-system-xxve.onrender.com/backend/php/api/";
 const char* CAMERA_CAPTURE_URL = "http:///capture";  // Replace with http://<esp32-cam-ip>/capture
 
 const char* TELEGRAM_BOT_TOKEN = "";
@@ -53,13 +54,21 @@ constexpr uint8_t RFID_RST_PIN = 14;
 constexpr uint8_t FINGERPRINT_RX_PIN = 16;
 constexpr uint8_t FINGERPRINT_TX_PIN = 17;
 
-constexpr float TEMPERATURE_THRESHOLD_C = 35.0f;
+constexpr float TEMPERATURE_WARNING_THRESHOLD_C = 35.0f;
+constexpr float TEMPERATURE_CRITICAL_THRESHOLD_C = 45.0f;
+constexpr float TEMPERATURE_THRESHOLD_C = TEMPERATURE_WARNING_THRESHOLD_C;
 constexpr unsigned long SENSOR_POLL_INTERVAL_MS = 2000;
 constexpr unsigned long BACKEND_PUSH_INTERVAL_MS = 3000;
 constexpr unsigned long ACTUATOR_SYNC_INTERVAL_MS = 2500;
 constexpr unsigned long OUTPUT_HOLD_MS = 8000;
 constexpr unsigned long TELEGRAM_COOLDOWN_MS = 15000;
 constexpr unsigned long ACCESS_SESSION_TIMEOUT_MS = 15000;
+constexpr uint8_t OUTPUT_ACTIVE_LEVEL = HIGH;
+constexpr uint8_t OUTPUT_INACTIVE_LEVEL = LOW;
+constexpr uint8_t LOCK_CLOSED_LEVEL = HIGH;
+constexpr uint8_t LOCK_OPEN_LEVEL = LOW;
+constexpr uint8_t VALVE_OPEN_LEVEL = HIGH;
+constexpr uint8_t VALVE_CLOSED_LEVEL = LOW;
 
 #define DHT_TYPE DHT22
 
@@ -76,13 +85,16 @@ struct SensorState {
 };
 
 struct AlertTracker {
-  bool highTempActive = false;
+  uint8_t temperatureAlertLevel = 0;
   bool outputsActive = false;
   unsigned long outputsActivatedAt = 0;
   unsigned long lastMotionTelegram = 0;
   unsigned long lastVibrationTelegram = 0;
+  unsigned long lastDoorTelegram = 0;
   unsigned long lastFireTelegram = 0;
-  unsigned long lastTempTelegram = 0;
+  unsigned long lastTempWarningTelegram = 0;
+  unsigned long lastTempCriticalTelegram = 0;
+  unsigned long lastAccessDeniedTelegram = 0;
 };
 
 struct AccessControlState {
@@ -140,11 +152,11 @@ String trimCopy(String value) {
 }
 
 void setOutputs(bool enabled) {
-  digitalWrite(LED_PIN, enabled ? HIGH : LOW);
-  digitalWrite(BUZZER_PIN, enabled ? HIGH : LOW);
-  digitalWrite(SOLENOID_VALVE_PIN, enabled ? HIGH : LOW);
-  digitalWrite(SOLENOID_LOCK_PIN, enabled ? HIGH : LOW);
-  digitalWrite(RELAY_PIN, enabled ? HIGH : LOW);
+  digitalWrite(LED_PIN, enabled ? OUTPUT_ACTIVE_LEVEL : OUTPUT_INACTIVE_LEVEL);
+  digitalWrite(BUZZER_PIN, enabled ? OUTPUT_ACTIVE_LEVEL : OUTPUT_INACTIVE_LEVEL);
+  digitalWrite(SOLENOID_LOCK_PIN, enabled ? LOCK_CLOSED_LEVEL : LOCK_OPEN_LEVEL);
+  digitalWrite(SOLENOID_VALVE_PIN, enabled ? VALVE_OPEN_LEVEL : VALVE_CLOSED_LEVEL);
+  digitalWrite(RELAY_PIN, enabled ? OUTPUT_ACTIVE_LEVEL : OUTPUT_INACTIVE_LEVEL);
 
   alertTracker.outputsActive = enabled;
   alertTracker.outputsActivatedAt = enabled ? millis() : 0;
@@ -152,6 +164,11 @@ void setOutputs(bool enabled) {
 
 void resetOutputsIfNeeded() {
   if (alertTracker.outputsActive && (millis() - alertTracker.outputsActivatedAt >= OUTPUT_HOLD_MS)) {
+    // Keep outputs latched while active motion/fire is still present.
+    if (currentState.motion || currentState.fire) {
+      alertTracker.outputsActivatedAt = millis();
+      return;
+    }
     setOutputs(false);
   }
 }
@@ -159,8 +176,9 @@ void resetOutputsIfNeeded() {
 bool postJson(const String& url, const String& body, bool secure = false) {
   HTTPClient http;
   bool started = false;
+  const bool useSecure = secure || url.startsWith("https://");
 
-  if (secure) {
+  if (useSecure) {
     secureClient.setInsecure();
     started = http.begin(secureClient, url);
   } else {
@@ -185,9 +203,19 @@ bool postJson(const String& url, const String& body, bool secure = false) {
   return code >= 200 && code < 300;
 }
 
-bool postJsonWithResponse(const String& url, const String& body, String& responseBody) {
+bool postJsonWithResponse(const String& url, const String& body, String& responseBody, int* responseCodeOut = nullptr) {
   HTTPClient http;
-  if (!http.begin(url)) {
+  const bool useSecure = url.startsWith("https://");
+  bool started = false;
+
+  if (useSecure) {
+    secureClient.setInsecure();
+    started = http.begin(secureClient, url);
+  } else {
+    started = http.begin(url);
+  }
+
+  if (!started) {
     Serial.println("HTTP begin failed: " + url);
     return false;
   }
@@ -198,6 +226,9 @@ bool postJsonWithResponse(const String& url, const String& body, String& respons
   http.end();
 
   Serial.printf("POST %s -> %d\n", url.c_str(), code);
+  if (responseCodeOut != nullptr) {
+    *responseCodeOut = code;
+  }
   return code >= 200 && code < 300;
 }
 
@@ -254,7 +285,17 @@ void syncActuatorsFromBackend() {
 
   HTTPClient http;
   const String url = apiUrl("control.php") + "?actuators=1";
-  if (!http.begin(url)) {
+  const bool useSecure = url.startsWith("https://");
+  bool started = false;
+
+  if (useSecure) {
+    secureClient.setInsecure();
+    started = http.begin(secureClient, url);
+  } else {
+    started = http.begin(url);
+  }
+
+  if (!started) {
     Serial.println("Unable to reach control endpoint for actuator sync");
     return;
   }
@@ -310,16 +351,33 @@ void syncActuatorsFromBackend() {
   }
 }
 
-void triggerCameraCapture() {
+bool triggerCameraCapture() {
+  const String captureUrl = String(CAMERA_CAPTURE_URL);
+  if (captureUrl.length() < 10 || captureUrl.indexOf("http") != 0 || captureUrl.indexOf("///") >= 0) {
+    Serial.println("CAMERA_CAPTURE_URL is invalid. Set it to http://<esp32-cam-ip>/capture");
+    return false;
+  }
+
   HTTPClient http;
-  if (!http.begin(CAMERA_CAPTURE_URL)) {
+  const bool useSecure = captureUrl.startsWith("https://");
+  bool started = false;
+
+  if (useSecure) {
+    secureClient.setInsecure();
+    started = http.begin(secureClient, captureUrl);
+  } else {
+    started = http.begin(captureUrl);
+  }
+
+  if (!started) {
     Serial.println("Unable to reach ESP32-CAM capture endpoint");
-    return;
+    return false;
   }
 
   int code = http.GET();
   Serial.printf("Camera trigger response: %d\n", code);
   http.end();
+  return code >= 200 && code < 300;
 }
 
 void resetAccessSequence() {
@@ -355,15 +413,36 @@ bool sendAccessVerificationRequest(const String& rfidUid, const String& fingerpr
   String responseBody;
   serializeJson(doc, payload);
 
-  const bool ok = postJsonWithResponse(apiUrl("control.php"), payload, responseBody);
+  int responseCode = 0;
+  const bool ok = postJsonWithResponse(apiUrl("control.php"), payload, responseBody, &responseCode);
+
+  StaticJsonDocument<1024> responseDoc;
+  DeserializationError parseError = deserializeJson(responseDoc, responseBody);
+  String responseMessage = "";
+  if (!parseError) {
+    if (!responseDoc["message"].isNull()) {
+      responseMessage = String((const char*) responseDoc["message"]);
+    } else if (!responseDoc["error"].isNull()) {
+      responseMessage = String((const char*) responseDoc["error"]);
+    }
+  }
+
   if (!ok) {
     Serial.println("Access control request failed");
+    if (responseCode == 403 || responseCode == 409) {
+      setOutputs(true);
+      if (canSendTelegram(alertTracker.lastAccessDeniedTelegram)) {
+        const String deniedMessage = responseMessage.length() > 0
+          ? responseMessage
+          : "Unauthorized access attempt detected.";
+        sendTelegramMessage("WARNING: Unauthorized access attempt at " + String(DEVICE_LOCATION) + ". " + deniedMessage);
+        alertTracker.lastAccessDeniedTelegram = millis();
+      }
+    }
     return false;
   }
 
-  StaticJsonDocument<1024> responseDoc;
-  const DeserializationError error = deserializeJson(responseDoc, responseBody);
-  if (error) {
+  if (parseError) {
     Serial.println("Access control JSON parse failed");
     return false;
   }
@@ -480,18 +559,31 @@ void readSensors() {
 void handleMotionAlert() {
   setOutputs(true);
   sendBackendPayload("motion", "Motion detected. Camera, buzzer, LED, valve and lock activated.", "high");
-  triggerCameraCapture();
+  const bool captureOk = triggerCameraCapture();
   if (canSendTelegram(alertTracker.lastMotionTelegram)) {
-    sendTelegramMessage("Motion detected at " + String(DEVICE_LOCATION) + ". ESP32-CAM capture requested.");
+    sendTelegramMessage(
+      String("Motion detected at ") + DEVICE_LOCATION +
+      (captureOk ? ". ESP32-CAM captured and sent alert image." : ". ESP32-CAM capture request failed.")
+    );
     alertTracker.lastMotionTelegram = millis();
   }
 }
 
 void handleVibrationAlert() {
-  sendBackendPayload("vibration", "Vibration detected.", "medium");
+  setOutputs(true);
+  sendBackendPayload("vibration", "Suspicious vibration detected: possible tampering.", "high");
   if (canSendTelegram(alertTracker.lastVibrationTelegram)) {
-    sendTelegramMessage("Vibration detected at " + String(DEVICE_LOCATION) + ".");
+    sendTelegramMessage("ALERT: Suspicious vibration detected at " + String(DEVICE_LOCATION) + ". Possible tampering.");
     alertTracker.lastVibrationTelegram = millis();
+  }
+}
+
+void handleDoorAlert() {
+  setOutputs(true);
+  sendBackendPayload("door", "Warning: Door opened. Unauthorized access detected.", "high");
+  if (canSendTelegram(alertTracker.lastDoorTelegram)) {
+    sendTelegramMessage("WARNING: Door opened at " + String(DEVICE_LOCATION) + ". Unauthorized access detected.");
+    alertTracker.lastDoorTelegram = millis();
   }
 }
 
@@ -499,16 +591,48 @@ void handleFireAlert() {
   setOutputs(true);
   sendBackendPayload("fire", "Fire detected. Emergency alert raised.", "critical");
   if (canSendTelegram(alertTracker.lastFireTelegram)) {
-    sendTelegramMessage("FIRE ALERT at " + String(DEVICE_LOCATION) + ". Check the site immediately.");
+    sendTelegramMessage("EMERGENCY: Fire detected in the room at " + String(DEVICE_LOCATION) + ". Immediate action required.");
     alertTracker.lastFireTelegram = millis();
   }
 }
 
-void handleHighTemperatureAlert() {
-  sendBackendPayload("temperature", "Temperature threshold exceeded.", "high");
-  if (canSendTelegram(alertTracker.lastTempTelegram)) {
-    sendTelegramMessage("High temperature at " + String(DEVICE_LOCATION) + ": " + String(currentState.temperature, 1) + " C");
-    alertTracker.lastTempTelegram = millis();
+uint8_t resolveTemperatureAlertLevel(float temperatureC) {
+  if (isnan(temperatureC) || temperatureC < TEMPERATURE_WARNING_THRESHOLD_C) {
+    return 0;
+  }
+  if (temperatureC > TEMPERATURE_CRITICAL_THRESHOLD_C) {
+    return 2;
+  }
+  return 1;
+}
+
+void handleTemperatureAlert(uint8_t level) {
+  const bool isCritical = level >= 2;
+  setOutputs(true);
+  sendBackendPayload(
+    "temperature",
+    isCritical
+      ? "Critical: High temperature detected. Risk of overheating."
+      : "Warning: High temperature detected. Temperature rising. Risk of overheating.",
+    isCritical ? "critical" : "high"
+  );
+
+  if (isCritical) {
+    if (canSendTelegram(alertTracker.lastTempCriticalTelegram)) {
+      sendTelegramMessage(
+        "CRITICAL: High temperature detected at " + String(DEVICE_LOCATION) + " (" + String(currentState.temperature, 1) +
+        " C). Risk of overheating."
+      );
+      alertTracker.lastTempCriticalTelegram = millis();
+    }
+  } else {
+    if (canSendTelegram(alertTracker.lastTempWarningTelegram)) {
+      sendTelegramMessage(
+        "WARNING: Temperature rising at " + String(DEVICE_LOCATION) + " (" + String(currentState.temperature, 1) +
+        " C). Risk of overheating."
+      );
+      alertTracker.lastTempWarningTelegram = millis();
+    }
   }
 }
 
@@ -521,18 +645,19 @@ void processStateChanges() {
     handleVibrationAlert();
   }
 
+  if (currentState.doorOpen && !previousState.doorOpen) {
+    handleDoorAlert();
+  }
+
   if (currentState.fire && !previousState.fire) {
     handleFireAlert();
   }
 
-  bool highTempNow = !isnan(currentState.temperature) && currentState.temperature >= TEMPERATURE_THRESHOLD_C;
-  if (highTempNow && !alertTracker.highTempActive) {
-    handleHighTemperatureAlert();
-    alertTracker.highTempActive = true;
+  const uint8_t currentTempAlertLevel = resolveTemperatureAlertLevel(currentState.temperature);
+  if (currentTempAlertLevel > alertTracker.temperatureAlertLevel) {
+    handleTemperatureAlert(currentTempAlertLevel);
   }
-  if (!highTempNow) {
-    alertTracker.highTempActive = false;
-  }
+  alertTracker.temperatureAlertLevel = currentTempAlertLevel;
 
   previousState = currentState;
 }
