@@ -16,7 +16,8 @@
         sensorHistory: {},
         pollTimers: {},
         alertState: {
-            sensorActive: {}
+            sensorActive: {},
+            lastAccessEventKey: ''
         }
     };
 
@@ -126,6 +127,23 @@
         return false;
     }
 
+    function getSensorAlertStage(sensor) {
+        if (!isSensorInAlert(sensor)) {
+            return 'normal';
+        }
+
+        const type = String(sensor?.type || '').toLowerCase();
+        if (type === 'temperature') {
+            const numericValue = getSensorNumericValue(sensor);
+            if (numericValue !== null && Number.isFinite(numericValue) && numericValue > 45) {
+                return 'temperature-critical';
+            }
+            return 'temperature-warning';
+        }
+
+        return 'alert';
+    }
+
     function evaluateSensorAlertTransitions(sensors) {
         const previous = RTState.alertState.sensorActive || {};
         const next = {};
@@ -135,15 +153,19 @@
             const identity = getSensorIdentity(sensor);
             if (!identity) return;
 
-            const activeNow = isSensorInAlert(sensor);
-            next[identity] = activeNow;
+            const alertStage = getSensorAlertStage(sensor);
+            next[identity] = alertStage;
 
-            if (activeNow && !previous[identity]) {
+            if (alertStage !== 'normal' && previous[identity] !== alertStage) {
+                const numericValue = getSensorNumericValue(sensor);
                 newAlerts.push({
                     sensor_id: sensor.sensor_id || identity,
                     name: sensor.name || identity,
                     type: sensor.type || 'sensor',
-                    status: sensor.status || sensor.latest_reading?.status || 'alert'
+                    status: sensor.status || sensor.latest_reading?.status || 'alert',
+                    alert_stage: alertStage,
+                    numeric_value: numericValue,
+                    value: numericValue ?? sensor.last_value ?? sensor.latest_reading?.value
                 });
             }
         });
@@ -155,6 +177,29 @@
                 kind: 'sensor',
                 count: newAlerts.length,
                 sensors: newAlerts
+            });
+        }
+    }
+
+    function evaluateAccessAlertTransitions(systemStatus) {
+        const recentEvent = systemStatus?.access_control?.recent_event || null;
+        if (!recentEvent) {
+            return;
+        }
+
+        const eventStatus = String(recentEvent.status || '').toLowerCase();
+        const eventKey = `${recentEvent.log_id || ''}|${recentEvent.created_at || ''}|${eventStatus}`;
+        if (!eventKey || eventKey === RTState.alertState.lastAccessEventKey) {
+            return;
+        }
+
+        RTState.alertState.lastAccessEventKey = eventKey;
+        if (eventStatus === 'denied') {
+            dispatchRealtimeEvent('jarvis:sound-alert', {
+                kind: 'access',
+                status: eventStatus,
+                source: 'access_control',
+                event: recentEvent
             });
         }
     }
@@ -188,6 +233,7 @@
 
             RTState.snapshot.sensors.forEach(appendSensorHistory);
             evaluateSensorAlertTransitions(RTState.snapshot.sensors);
+            evaluateAccessAlertTransitions(RTState.snapshot.systemStatus);
             dispatchRealtimeEvent('jarvis:realtime', getSnapshot());
         } catch (error) {
             console.error('Realtime fetch failed:', error);
