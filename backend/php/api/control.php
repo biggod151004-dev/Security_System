@@ -216,6 +216,12 @@ function handleGet($db, array $params): void {
         successResponse($actuator);
     }
 
+    if (isset($params['access_profiles'])) {
+        successResponse([
+            'profiles' => getAccessProfiles($db),
+        ]);
+    }
+
     $settings = $db->fetchAll('SELECT * FROM settings ORDER BY category, setting_key');
     $grouped = [];
 
@@ -251,6 +257,12 @@ function handlePost($db, array $input): void {
             break;
         case 'reset_access_flow':
             resetAccessFlow($db, $input);
+            break;
+        case 'upsert_access_profile':
+            upsertAccessProfile($db, $input);
+            break;
+        case 'remove_access_profile':
+            removeAccessProfile($db, $input);
             break;
         default:
             errorResponse('Invalid action');
@@ -350,6 +362,101 @@ function getAccessProfiles($db): array
     $setting = $db->fetch("SELECT setting_value FROM settings WHERE setting_key = 'access_profiles'");
     $profiles = json_decode((string) ($setting['setting_value'] ?? '[]'), true);
     return is_array($profiles) ? $profiles : [];
+}
+
+function saveAccessProfiles($db, array $profiles): void
+{
+    $normalized = array_values(array_map(static function ($profile) {
+        return [
+            'name' => trim((string) ($profile['name'] ?? 'Authorized User')),
+            'rfid_uid' => strtoupper(trim((string) ($profile['rfid_uid'] ?? ''))),
+            'fingerprint_id' => strtoupper(trim((string) ($profile['fingerprint_id'] ?? ''))),
+            'role' => trim((string) ($profile['role'] ?? 'User')),
+        ];
+    }, $profiles));
+
+    $db->update(
+        'settings',
+        ['setting_value' => json_encode($normalized, JSON_UNESCAPED_SLASHES)],
+        'setting_key = :setting_key',
+        ['setting_key' => 'access_profiles']
+    );
+}
+
+function upsertAccessProfile($db, array $input): void
+{
+    $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
+    $fingerprintId = strtoupper(trim((string) ($input['fingerprint_id'] ?? '')));
+    $name = trim((string) ($input['name'] ?? 'Authorized User'));
+    $role = trim((string) ($input['role'] ?? 'User'));
+
+    if ($rfidUid === '' || $fingerprintId === '') {
+        errorResponse('rfid_uid and fingerprint_id are required');
+    }
+
+    $profiles = getAccessProfiles($db);
+    $updated = false;
+
+    foreach ($profiles as &$profile) {
+        if (strcasecmp((string) ($profile['rfid_uid'] ?? ''), $rfidUid) === 0) {
+            $profile['name'] = $name;
+            $profile['fingerprint_id'] = $fingerprintId;
+            $profile['role'] = $role;
+            $updated = true;
+            break;
+        }
+    }
+    unset($profile);
+
+    if (!$updated) {
+        $profiles[] = [
+            'name' => $name,
+            'rfid_uid' => $rfidUid,
+            'fingerprint_id' => $fingerprintId,
+            'role' => $role,
+        ];
+    }
+
+    saveAccessProfiles($db, $profiles);
+    createAccessEventLog($db, $updated ? "Access profile updated for RFID {$rfidUid}." : "Access profile added for RFID {$rfidUid}.", 1, [
+        'status' => 'profile_updated',
+        'rfid_uid' => $rfidUid,
+        'fingerprint_id' => $fingerprintId,
+        'user_name' => $name,
+        'role' => $role,
+    ]);
+
+    successResponse([
+        'updated' => $updated,
+        'profiles' => getAccessProfiles($db),
+    ], $updated ? 'Access profile updated successfully' : 'Access profile added successfully');
+}
+
+function removeAccessProfile($db, array $input): void
+{
+    $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
+    if ($rfidUid === '') {
+        errorResponse('rfid_uid is required');
+    }
+
+    $profiles = getAccessProfiles($db);
+    $remaining = array_values(array_filter($profiles, static function ($profile) use ($rfidUid) {
+        return strcasecmp((string) ($profile['rfid_uid'] ?? ''), $rfidUid) !== 0;
+    }));
+
+    if (count($remaining) === count($profiles)) {
+        errorResponse('RFID profile not found', 404);
+    }
+
+    saveAccessProfiles($db, $remaining);
+    createAccessEventLog($db, "Access profile removed for RFID {$rfidUid}.", 2, [
+        'status' => 'profile_removed',
+        'rfid_uid' => $rfidUid,
+    ]);
+
+    successResponse([
+        'profiles' => getAccessProfiles($db),
+    ], 'Access profile removed successfully');
 }
 
 function getPendingAccess($db): ?array
