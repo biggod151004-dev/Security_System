@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -87,14 +87,45 @@
                     <h1>Security Blockchain</h1>
                     <div class="status-indicator">
                         <span class="status-dot"></span>
-                        <span class="status-text">Chain Verified</span>
+                        <span class="status-text">Wallet Not Connected</span>
                     </div>
                 </div>
                 <div class="header-actions">
-                    <button class="btn btn-primary" onclick="verifyChain()">Verify Chain</button>
-                    <button class="btn btn-secondary" onclick="exportBlockchain()">Export</button>
+                    <button class="btn btn-primary" id="connectWalletBtn">Connect Wallet</button>
+                    <button class="btn btn-secondary" id="verifyChainBtn">Verify Chain</button>
+                    <button class="btn btn-secondary" id="exportBlockchainBtn">Export</button>
                 </div>
             </header>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">On-chain Configuration</h3>
+                    <span class="badge info">Polygon Amoy</span>
+                </div>
+                <div class="card-body" style="display: grid; gap: 15px;">
+                    <div style="display: grid; gap: 10px;">
+                        <div style="display: flex; justify-content: space-between; gap: 20px; padding: 10px; background: var(--bg-darker); border-radius: 8px;">
+                            <span style="color: var(--text-secondary);">Network</span>
+                            <span id="networkName">Polygon Amoy (80002)</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 20px; padding: 10px; background: var(--bg-darker); border-radius: 8px;">
+                            <span style="color: var(--text-secondary);">Contract</span>
+                            <span id="contractAddress" style="font-family: monospace; font-size: 0.8rem;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 20px; padding: 10px; background: var(--bg-darker); border-radius: 8px;">
+                            <span style="color: var(--text-secondary);">Wallet</span>
+                            <span id="walletAddress" style="font-family: monospace; font-size: 0.8rem;">Not connected</span>
+                        </div>
+                    </div>
+                    <div style="display: grid; gap: 10px;">
+                        <label for="eventTypeInput" style="color: var(--text-secondary);">Event Type</label>
+                        <input id="eventTypeInput" type="text" placeholder="Example: Motion Event" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-darker); color: var(--text-primary);">
+                        <label for="eventDataInput" style="color: var(--text-secondary);">Event Data (raw text)</label>
+                        <textarea id="eventDataInput" rows="3" placeholder="Example: sensor=pir-001; zone=A; status=alert" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-darker); color: var(--text-primary);"></textarea>
+                        <button class="btn btn-primary" id="addRecordBtn">Add Record On-chain</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- Blockchain Stats -->
             <section class="stats-grid">
@@ -126,9 +157,9 @@
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
                     </div>
-                    <div class="stat-value">AES-256</div>
-                    <div class="stat-label">Encryption</div>
-                    <div class="stat-change positive">Active</div>
+                    <div class="stat-value">Amoy</div>
+                    <div class="stat-label">Network</div>
+                    <div class="stat-change positive">Online</div>
                 </div>
             </section>
 
@@ -139,58 +170,8 @@
                     <span class="badge success">Live</span>
                 </div>
                 <div class="card-body">
-                    <div class="blockchain-visual" style="overflow-x: auto; padding: 20px 0;">
-                        <!-- Block 1 -->
-                        <div class="block">
-                            <div class="block-header">
-                                <span class="block-number">Block #1245</span>
-                                <span class="badge success">Valid</span>
-                            </div>
-                            <div class="block-hash">0x7f8a...3d2e</div>
-                            <div class="block-data" style="margin-top: 10px;">
-                                <p><strong>Type:</strong> Sensor Event</p>
-                                <p><strong>Time:</strong> 14:28:45</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Block 2 -->
-                        <div class="block">
-                            <div class="block-header">
-                                <span class="block-number">Block #1246</span>
-                                <span class="badge success">Valid</span>
-                            </div>
-                            <div class="block-hash">0x9c3b...7f1a</div>
-                            <div class="block-data" style="margin-top: 10px;">
-                                <p><strong>Type:</strong> Access Log</p>
-                                <p><strong>Time:</strong> 14:29:12</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Block 3 -->
-                        <div class="block">
-                            <div class="block-header">
-                                <span class="block-number">Block #1247</span>
-                                <span class="badge success">Valid</span>
-                            </div>
-                            <div class="block-hash">0x2e5d...8c4f</div>
-                            <div class="block-data" style="margin-top: 10px;">
-                                <p><strong>Type:</strong> Security Alert</p>
-                                <p><strong>Time:</strong> 14:30:03</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Block 4 (Latest) -->
-                        <div class="block" style="border-color: var(--primary-color); box-shadow: var(--glow-primary);">
-                            <div class="block-header">
-                                <span class="block-number">Block #1248</span>
-                                <span class="badge info">Latest</span>
-                            </div>
-                            <div class="block-hash">0x1a4f...5b9c</div>
-                            <div class="block-data" style="margin-top: 10px;">
-                                <p><strong>Type:</strong> Motion Event</p>
-                                <p><strong>Time:</strong> 14:32:45</p>
-                            </div>
-                        </div>
+                    <div class="blockchain-visual" id="onchainExplorer" style="overflow-x: auto; padding: 20px 0;">
+                        <p style="color: var(--text-secondary);">Connect wallet to load on-chain records.</p>
                     </div>
                 </div>
             </div>
@@ -212,46 +193,9 @@
                                 <th>Status</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="recentBlocksBody">
                             <tr>
-                                <td>#1248</td>
-                                <td>2024-03-15 14:32:45</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x1a4f...5b9c</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x2e5d...8c4f</td>
-                                <td><span class="badge info">Motion Event</span></td>
-                                <td><span class="badge success">Valid</span></td>
-                            </tr>
-                            <tr>
-                                <td>#1247</td>
-                                <td>2024-03-15 14:30:03</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x2e5d...8c4f</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x9c3b...7f1a</td>
-                                <td><span class="badge warning">Security Alert</span></td>
-                                <td><span class="badge success">Valid</span></td>
-                            </tr>
-                            <tr>
-                                <td>#1246</td>
-                                <td>2024-03-15 14:29:12</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x9c3b...7f1a</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x7f8a...3d2e</td>
-                                <td><span class="badge info">Access Log</span></td>
-                                <td><span class="badge success">Valid</span></td>
-                            </tr>
-                            <tr>
-                                <td>#1245</td>
-                                <td>2024-03-15 14:28:45</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x7f8a...3d2e</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x5d1c...9a7b</td>
-                                <td><span class="badge info">Sensor Event</span></td>
-                                <td><span class="badge success">Valid</span></td>
-                            </tr>
-                            <tr>
-                                <td>#1244</td>
-                                <td>2024-03-15 14:27:30</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x5d1c...9a7b</td>
-                                <td style="font-family: monospace; font-size: 0.8rem;">0x3b8e...2c5d</td>
-                                <td><span class="badge info">System Log</span></td>
-                                <td><span class="badge success">Valid</span></td>
+                                <td colspan="6">Connect wallet to load on-chain records.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -367,19 +311,9 @@
     <script src="../js/app.js"></script>
     <script src="../js/voice.js"></script>
     <script src="../js/jarvis.js"></script>
-    <script>
-        function verifyChain() {
-            showNotification('Blockchain', 'Verifying chain integrity...', 'info');
-            setTimeout(() => {
-                showNotification('Blockchain', 'Chain verified! All 1,247 blocks are valid.', 'success');
-            }, 2000);
-        }
-        
-        function exportBlockchain() {
-            showNotification('Export', 'Preparing blockchain export...', 'info');
-        }
-    </script>
     <script src="../js/pages.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.15.0/ethers.umd.min.js"></script>
+    <script src="../js/blockchain-web3.js"></script>
 </body>
 </html>
 
