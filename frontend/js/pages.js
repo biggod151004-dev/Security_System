@@ -19,6 +19,10 @@
             search: ''
         },
         dashboardSnapshot: null,
+        accessEventTracker: {
+            lastLogId: null,
+            lastPendingRfid: null
+        },
         captureHistory: loadCaptureHistory(),
         bindings: {},
         sensorHistoryPromises: {}
@@ -75,6 +79,37 @@
 
     function notify(title, message, type) {
         window.showNotification?.(title, message, type);
+    }
+
+    function playAccessFeedbackTone() {
+        window.JarvisApp?.playAlertTone?.();
+    }
+
+    function emitAccessEventFeedback(lastEvent, lastStatus, awaitingFingerprint) {
+        if (pageName !== 'index.html') return;
+
+        const nextLogId = String(lastEvent?.log_id || '');
+        const nextPendingRfid = String(PageState.accessControl?.pending_rfid_uid || '');
+        const previousLogId = String(PageState.accessEventTracker.lastLogId || '');
+        const previousPendingRfid = String(PageState.accessEventTracker.lastPendingRfid || '');
+
+        if (awaitingFingerprint && nextPendingRfid && nextPendingRfid !== previousPendingRfid) {
+            notify('Access Control', `RFID ${nextPendingRfid} verified. Scan fingerprint now.`, 'success');
+            playAccessFeedbackTone();
+        }
+
+        if (nextLogId && nextLogId !== previousLogId) {
+            if (lastStatus === 'granted') {
+                notify('Access Control', 'Access Granted. Door unlock command sent.', 'success');
+                playAccessFeedbackTone();
+            } else if (lastStatus === 'denied') {
+                notify('Access Control', 'Access Denied. Door remains locked.', 'error');
+                playAccessFeedbackTone();
+            }
+        }
+
+        PageState.accessEventTracker.lastLogId = nextLogId || PageState.accessEventTracker.lastLogId;
+        PageState.accessEventTracker.lastPendingRfid = nextPendingRfid || null;
     }
 
     function escapeHtml(value) {
@@ -958,6 +993,7 @@
         const doorUnlocked = Boolean(lastEvent?.door_unlocked) || (lockActuator ? !isActuatorOn(lockActuator) : false);
 
         PageState.accessControl = accessControl;
+        emitAccessEventFeedback(lastEvent, lastStatus, awaitingFingerprint);
 
         const workflowBadge = document.getElementById('accessWorkflowBadge');
         if (workflowBadge) {
