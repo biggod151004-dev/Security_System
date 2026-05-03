@@ -1182,11 +1182,20 @@
     function renderDashboardAccessPanel(snapshot) {
         const accessControl = snapshot.systemStatus?.access_control || {};
         const lockActuator = findActuatorByType(snapshot.systemStatus?.actuators || [], 'lock');
+        const doorSensor = (snapshot.sensors || []).find((sensor) => sensor.type === 'door') || null;
         const latestAccessLog = getLatestAccessLog(snapshot.logs || []);
         const awaitingFingerprint = Boolean(accessControl.awaiting_fingerprint);
         const lastEvent = accessControl.recent_event || null;
         const lastStatus = String(lastEvent?.status || '').toLowerCase();
         const doorUnlocked = Boolean(lastEvent?.door_unlocked) || (lockActuator ? !isActuatorOn(lockActuator) : false);
+        const doorRawValue = String(doorSensor?.last_value ?? doorSensor?.latest_reading?.value ?? '').trim().toUpperCase();
+        const doorIsOpen = ['OPEN', '1', 'ON', 'TRUE', 'DETECTED'].includes(doorRawValue);
+        const doorStateText = !doorSensor
+            ? 'No sensor'
+            : doorRawValue
+                ? (doorIsOpen ? 'OPEN' : 'CLOSED')
+                : 'Waiting...';
+        const doorUpdatedAt = doorSensor ? getSensorTimestamp(doorSensor) : null;
 
         PageState.accessControl = accessControl;
         emitAccessEventFeedback(lastEvent, lastStatus, awaitingFingerprint);
@@ -1255,6 +1264,8 @@
                     : 'Waiting for dual verification.');
         setText('accessUserLabel', activeUser);
         setText('accessLastVerified', lastEventTime ? `${formatTimeAgo(lastEventTime)} - ${lastEventMessage}` : 'No recent access event');
+        setText('doorSensorStatusLabel', doorStateText);
+        setText('doorSensorUpdated', doorUpdatedAt ? `Updated ${formatTimeAgo(doorUpdatedAt)}` : 'Waiting for updates');
 
         const fingerprintInput = document.getElementById('fingerprintScanInput');
         if (fingerprintInput) {
