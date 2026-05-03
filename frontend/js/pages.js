@@ -21,7 +21,9 @@
         dashboardSnapshot: null,
         accessEventTracker: {
             lastLogId: null,
-            lastPendingRfid: null
+            lastPendingRfid: null,
+            lastPhase: null,
+            feedKeys: []
         },
         captureHistory: loadCaptureHistory(),
         bindings: {},
@@ -508,6 +510,140 @@
         if (text && message) {
             text.textContent = message;
         }
+    }
+
+    function setStepScanning(id, isScanning) {
+        const card = document.getElementById(id);
+        if (!card) return;
+        card.classList.toggle('is-scanning', Boolean(isScanning));
+    }
+
+    function setAccessLiveChip(label, tone = 'idle') {
+        const chip = document.getElementById('accessLiveMode');
+        if (!chip) return;
+        chip.classList.remove('idle', 'active', 'success', 'error');
+        chip.classList.add(tone || 'idle');
+        chip.textContent = String(label || 'Standby');
+    }
+
+    function setAccessLiveTile(tileId, labelId, tone, text) {
+        const tile = document.getElementById(tileId);
+        const label = document.getElementById(labelId);
+        if (tile) {
+            tile.classList.remove('idle', 'active', 'success', 'error');
+            tile.classList.add(tone || 'idle');
+        }
+        if (label && text) {
+            label.textContent = String(text);
+        }
+    }
+
+    function appendAccessFeedLine(message, dedupeKey = '') {
+        const feed = document.getElementById('accessLiveFeed');
+        if (!feed || !message) return;
+
+        if (!Array.isArray(PageState.accessEventTracker.feedKeys)) {
+            PageState.accessEventTracker.feedKeys = [];
+        }
+
+        if (dedupeKey && PageState.accessEventTracker.feedKeys.includes(dedupeKey)) {
+            return;
+        }
+
+        if (dedupeKey) {
+            PageState.accessEventTracker.feedKeys.push(dedupeKey);
+            if (PageState.accessEventTracker.feedKeys.length > 20) {
+                PageState.accessEventTracker.feedKeys = PageState.accessEventTracker.feedKeys.slice(-20);
+            }
+        }
+
+        const line = document.createElement('div');
+        const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.className = 'access-feed-line';
+        line.textContent = `[${stamp}] ${message}`;
+        feed.prepend(line);
+
+        while (feed.children.length > 8) {
+            feed.removeChild(feed.lastElementChild);
+        }
+    }
+
+    function syncAccessLiveConsole({
+        awaitingFingerprint,
+        lastStatus,
+        lastEvent,
+        accessControl,
+        doorUnlocked,
+        activeUser,
+        lastEventMessage
+    }) {
+        const currentPhase = awaitingFingerprint
+            ? 'awaiting_fingerprint'
+            : lastStatus === 'granted'
+                ? 'granted'
+                : lastStatus === 'denied'
+                    ? 'denied'
+                    : 'idle';
+        const previousPhase = PageState.accessEventTracker.lastPhase;
+
+        if (currentPhase === 'awaiting_fingerprint') {
+            setAccessLiveChip('RFID Matched', 'active');
+            setAccessLiveTile('accessLiveRfidTile', 'accessLiveRfid', 'success', `UID ${maskIdentifier(accessControl.pending_rfid_uid)} verified`);
+            setAccessLiveTile('accessLiveFingerprintTile', 'accessLiveFingerprint', 'active', 'Place finger on scanner');
+            setAccessLiveTile('accessLiveDoorTile', 'accessLiveDoor', 'active', 'LOCK HOLD');
+
+            setStepScanning('rfidStepCard', false);
+            setStepScanning('fingerprintStepCard', true);
+            setStepScanning('doorStepCard', false);
+
+            appendAccessFeedLine(
+                `RFID matched for ${activeUser}. Fingerprint verification window is live.`,
+                `awaiting:${accessControl.pending_rfid_uid || ''}:${accessControl.expires_at || ''}`
+            );
+        } else if (currentPhase === 'granted') {
+            setAccessLiveChip('Access Granted', 'success');
+            setAccessLiveTile('accessLiveRfidTile', 'accessLiveRfid', 'success', `UID ${maskIdentifier(lastEvent?.rfid_uid)} matched`);
+            setAccessLiveTile('accessLiveFingerprintTile', 'accessLiveFingerprint', 'success', `ID ${maskIdentifier(lastEvent?.fingerprint_id)} verified`);
+            setAccessLiveTile('accessLiveDoorTile', 'accessLiveDoor', 'success', 'UNLOCK PULSE');
+
+            setStepScanning('rfidStepCard', false);
+            setStepScanning('fingerprintStepCard', false);
+            setStepScanning('doorStepCard', false);
+
+            appendAccessFeedLine(
+                `Access granted for ${activeUser}. Door unlock command sent.`,
+                `event:${lastEvent?.log_id || ''}:${lastEvent?.created_at || ''}:granted`
+            );
+        } else if (currentPhase === 'denied') {
+            setAccessLiveChip('Access Denied', 'error');
+            setAccessLiveTile('accessLiveRfidTile', 'accessLiveRfid', 'error', lastEvent?.rfid_uid ? `UID ${maskIdentifier(lastEvent.rfid_uid)} rejected` : 'No valid RFID context');
+            setAccessLiveTile('accessLiveFingerprintTile', 'accessLiveFingerprint', 'error', lastEvent?.fingerprint_id ? `ID ${maskIdentifier(lastEvent.fingerprint_id)} mismatch` : 'Fingerprint verification failed');
+            setAccessLiveTile('accessLiveDoorTile', 'accessLiveDoor', 'error', 'LOCKDOWN');
+
+            setStepScanning('rfidStepCard', false);
+            setStepScanning('fingerprintStepCard', false);
+            setStepScanning('doorStepCard', false);
+
+            appendAccessFeedLine(
+                `Access denied. ${lastEventMessage || 'Verification mismatch detected.'}`,
+                `event:${lastEvent?.log_id || ''}:${lastEvent?.created_at || ''}:denied`
+            );
+        } else {
+            setAccessLiveChip('Standby', 'idle');
+            setAccessLiveTile('accessLiveRfidTile', 'accessLiveRfid', 'active', 'Reader armed - waiting for card');
+            setAccessLiveTile('accessLiveFingerprintTile', 'accessLiveFingerprint', 'idle', 'Idle until RFID match');
+            setAccessLiveTile('accessLiveDoorTile', 'accessLiveDoor', doorUnlocked ? 'success' : 'idle', doorUnlocked ? 'UNLOCK HOLD' : 'LOCK HOLD');
+
+            setStepScanning('rfidStepCard', true);
+            setStepScanning('fingerprintStepCard', false);
+            setStepScanning('doorStepCard', false);
+
+            if (previousPhase && previousPhase !== 'idle') {
+                appendAccessFeedLine('Verification sequence reset. Reader returned to standby.', `idle:${Date.now()}`);
+            }
+        }
+
+        PageState.accessEventTracker.lastPhase = currentPhase;
     }
 
     function buildSensorStats(sensors) {
@@ -1004,6 +1140,15 @@
         const activeUser = accessControl.pending_user || lastEvent?.user_name || 'No active verification';
         const lastEventTime = lastEvent?.created_at || latestAccessLog?.created_at || null;
         const lastEventMessage = latestAccessLog?.message || 'No recent access event';
+        syncAccessLiveConsole({
+            awaitingFingerprint,
+            lastStatus,
+            lastEvent,
+            accessControl,
+            doorUnlocked,
+            activeUser,
+            lastEventMessage
+        });
 
         if (awaitingFingerprint) {
             setStepState('rfidStepCard', 'success', `RFID ${maskIdentifier(accessControl.pending_rfid_uid)} accepted.`);
