@@ -187,6 +187,38 @@
                     </div>
                     <div class="card-body access-flow-shell">
                         <p class="access-guidance" id="accessInstruction">Scan a registered RFID card first. After verification, scan the matching fingerprint to unlock the door.</p>
+                        <div class="access-live-console">
+                            <div class="access-live-head">
+                                <span class="access-live-title">Hardware Scan Stream</span>
+                                <span class="access-live-chip" id="accessLiveMode">Standby</span>
+                            </div>
+                            <div class="access-live-grid">
+                                <div class="access-live-tile idle" id="accessLiveRfidTile">
+                                    <span class="access-live-label">RFID Reader</span>
+                                    <strong id="accessLiveRfid">Waiting for card tap</strong>
+                                    <div class="access-signal-bars" id="accessLiveRfidSignal" aria-hidden="true">
+                                        <span></span><span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                                <div class="access-live-tile idle" id="accessLiveFingerprintTile">
+                                    <span class="access-live-label">Fingerprint Sensor</span>
+                                    <strong id="accessLiveFingerprint">Idle</strong>
+                                    <div class="access-signal-bars" id="accessLiveFingerprintSignal" aria-hidden="true">
+                                        <span></span><span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                                <div class="access-live-tile idle" id="accessLiveDoorTile">
+                                    <span class="access-live-label">Door Controller</span>
+                                    <strong id="accessLiveDoor">LOCK HOLD</strong>
+                                    <div class="access-signal-bars" id="accessLiveDoorSignal" aria-hidden="true">
+                                        <span></span><span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="access-live-feed" id="accessLiveFeed">
+                                <div class="access-feed-line">[BOOT] Access monitor initialized. Waiting for RFID input.</div>
+                            </div>
+                        </div>
 
                         <div class="access-step-grid">
                             <div class="access-step" id="rfidStepCard">
