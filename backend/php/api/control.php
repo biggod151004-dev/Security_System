@@ -22,6 +22,7 @@ try {
     ensureDefaultActuators($db);
     ensureAccessControlSettings($db);
     ensureAccessScanEventsTable($db);
+    processDoorUnlockExpiry($db);
 
     switch ($method) {
         case 'GET':
@@ -93,14 +94,24 @@ function ensureAccessControlSettings($db): void
         'How long the main door should stay unlocked after a successful dual scan.',
         false
     );
+
+    ensureSetting(
+        $db,
+        'door_unlock_until',
+        '',
+        'string',
+        'security',
+        'Timestamp until when the main door lock should remain unlocked.',
+        false
+    );
 }
 
 function getRecommendedAccessProfiles(): array
 {
     return [
-        ['name' => 'Admin Access', 'rfid_uid' => '61E75517', 'fingerprint_id' => 'FP-501', 'role' => 'Administrator'],
-        ['name' => 'Security Officer', 'rfid_uid' => '75E14F06', 'fingerprint_id' => 'FP-502', 'role' => 'Security'],
-        ['name' => 'Operations Lead', 'rfid_uid' => 'RFID-1003', 'fingerprint_id' => 'FP-503', 'role' => 'Operations'],
+        ['name' => 'Admin Access', 'rfid_uid' => '61E75517', 'fingerprint_id' => 'FP-001', 'role' => 'Administrator'],
+        ['name' => 'Security Officer', 'rfid_uid' => '75E14F06', 'fingerprint_id' => 'FP-002', 'role' => 'Security'],
+        ['name' => 'Operations Lead', 'rfid_uid' => 'RFID-1003', 'fingerprint_id' => 'FP-003', 'role' => 'Operations'],
     ];
 }
 
@@ -110,14 +121,23 @@ function isLegacyPlaceholderProfiles(array $profiles): bool
         return false;
     }
 
+    $allPlaceholderRfid = true;
+    $allLegacyFingerprint = true;
+
     foreach ($profiles as $profile) {
         $rfid = strtoupper(trim((string) ($profile['rfid_uid'] ?? '')));
+        $fingerprint = strtoupper(trim((string) ($profile['fingerprint_id'] ?? '')));
+
         if (!preg_match('/^RFID-\d+$/', $rfid)) {
-            return false;
+            $allPlaceholderRfid = false;
+        }
+
+        if (!preg_match('/^FP[-_\s]*5\d{2}$/', $fingerprint)) {
+            $allLegacyFingerprint = false;
         }
     }
 
-    return true;
+    return $allPlaceholderRfid || $allLegacyFingerprint;
 }
 
 function migrateLegacyAccessProfiles($db, array $recommendedProfiles): void
@@ -182,6 +202,72 @@ function ensureSetting($db, string $key, string $value, string $type, string $ca
         'category' => $category,
         'description' => $description,
         'is_public' => $isPublic ? 1 : 0,
+    ]);
+}
+
+function getSettingValue($db, string $key, string $default = ''): string
+{
+    $row = $db->fetch('SELECT setting_value FROM settings WHERE setting_key = :setting_key', ['setting_key' => $key]);
+    if (!$row || !array_key_exists('setting_value', $row)) {
+        return $default;
+    }
+
+    return (string) $row['setting_value'];
+}
+
+function setSettingValue($db, string $key, string $value): void
+{
+    $db->update(
+        'settings',
+        ['setting_value' => $value],
+        'setting_key = :setting_key',
+        ['setting_key' => $key]
+    );
+}
+
+function clearDoorUnlockUntil($db): void
+{
+    setSettingValue($db, 'door_unlock_until', '');
+}
+
+function setDoorUnlockUntil($db, int $unlockWindowSeconds): string
+{
+    $until = date('Y-m-d H:i:s', time() + max(1, $unlockWindowSeconds));
+    setSettingValue($db, 'door_unlock_until', $until);
+    return $until;
+}
+
+function processDoorUnlockExpiry($db): void
+{
+    $unlockUntil = trim(getSettingValue($db, 'door_unlock_until', ''));
+    if ($unlockUntil === '') {
+        return;
+    }
+
+    $unlockUntilTs = strtotime($unlockUntil);
+    if ($unlockUntilTs === false) {
+        clearDoorUnlockUntil($db);
+        return;
+    }
+
+    if ($unlockUntilTs > time()) {
+        return;
+    }
+
+    $db->update(
+        'actuators',
+        [
+            'status' => 'on',
+            'last_activated_at' => date('Y-m-d H:i:s'),
+        ],
+        'actuator_id = :actuator_id',
+        ['actuator_id' => 'LOCK-001']
+    );
+    clearDoorUnlockUntil($db);
+    createAccessEventLog($db, 'Door auto-locked after access unlock window expired.', 1, [
+        'status' => 'auto_relocked',
+        'source' => 'ACCESS_CONTROL',
+        'door_unlocked' => false,
     ]);
 }
 
@@ -341,6 +427,9 @@ function controlActuator($db, array $input): void {
     }
 
     $db->update('actuators', $updateData, 'actuator_id = :actuator_id', ['actuator_id' => $actuatorId]);
+    if ($actuatorId === 'LOCK-001' && $state === 'on') {
+        clearDoorUnlockUntil($db);
+    }
 
     $db->insert('logs', [
         'log_id' => 'LOG-' . date('Ymd') . '-' . str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT),
@@ -370,7 +459,7 @@ function saveAccessProfiles($db, array $profiles): void
         return [
             'name' => trim((string) ($profile['name'] ?? 'Authorized User')),
             'rfid_uid' => strtoupper(trim((string) ($profile['rfid_uid'] ?? ''))),
-            'fingerprint_id' => strtoupper(trim((string) ($profile['fingerprint_id'] ?? ''))),
+            'fingerprint_id' => normalizeFingerprintId((string) ($profile['fingerprint_id'] ?? '')),
             'role' => trim((string) ($profile['role'] ?? 'User')),
         ];
     }, $profiles));
@@ -386,7 +475,7 @@ function saveAccessProfiles($db, array $profiles): void
 function upsertAccessProfile($db, array $input): void
 {
     $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
-    $fingerprintId = strtoupper(trim((string) ($input['fingerprint_id'] ?? '')));
+    $fingerprintId = normalizeFingerprintId((string) ($input['fingerprint_id'] ?? ''));
     $name = trim((string) ($input['name'] ?? 'Authorized User'));
     $role = trim((string) ($input['role'] ?? 'User'));
 
@@ -705,7 +794,7 @@ function resetAccessFlow($db, array $input): void
 function verifyAccess($db, array $input): void
 {
     $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
-    $fingerprintId = strtoupper(trim((string) ($input['fingerprint_id'] ?? '')));
+    $fingerprintId = normalizeFingerprintId((string) ($input['fingerprint_id'] ?? ''));
     $source = !empty($input['source']) ? sanitize((string) $input['source']) : 'CONTROL_PANEL';
     $profiles = getAccessProfiles($db);
 
@@ -800,12 +889,13 @@ function verifyAccess($db, array $input): void
             errorResponse('Scan RFID card first', 409);
         }
 
-        if (strcasecmp((string) $pending['fingerprint_id'], $fingerprintId) !== 0) {
+        $expectedFingerprintId = normalizeFingerprintId((string) ($pending['fingerprint_id'] ?? ''));
+        if ($expectedFingerprintId === '' || strcasecmp($expectedFingerprintId, $fingerprintId) !== 0) {
             clearPendingAccess($db);
             recordAccessScanEvent($db, 'FINGERPRINT', $fingerprintId, 'rejected', 'Fingerprint does not match pending RFID', [
                 'rfid_uid' => (string) $pending['rfid_uid'],
                 'fingerprint_id' => $fingerprintId,
-                'expected_value' => (string) $pending['fingerprint_id'],
+                'expected_value' => $expectedFingerprintId,
                 'user_name' => (string) $pending['user_name'],
                 'access_role' => (string) ($pending['role'] ?? 'User'),
                 'source' => $source,
@@ -816,7 +906,7 @@ function verifyAccess($db, array $input): void
             createAccessAudit($db, 'FINGERPRINT_REJECTED', false, [
                 'rfid_uid' => $pending['rfid_uid'],
                 'fingerprint_id' => $fingerprintId,
-                'expected_fingerprint_id' => $pending['fingerprint_id'],
+                'expected_fingerprint_id' => $expectedFingerprintId,
                 'user_name' => $pending['user_name'],
                 'source' => $source,
             ]);
@@ -831,7 +921,7 @@ function verifyAccess($db, array $input): void
             triggerUnauthorizedAccessAlert($db, "Fingerprint mismatch detected for RFID {$pending['rfid_uid']}. Unauthorized access attempt blocked.", [
                 'rfid_uid' => $pending['rfid_uid'],
                 'fingerprint_id' => $fingerprintId,
-                'expected_fingerprint_id' => $pending['fingerprint_id'],
+                'expected_fingerprint_id' => $expectedFingerprintId,
                 'user_name' => $pending['user_name'],
                 'source' => $source,
                 'reason' => 'fingerprint_mismatch',
@@ -844,6 +934,7 @@ function verifyAccess($db, array $input): void
             'status' => 'off',
             'last_deactivated_at' => date('Y-m-d H:i:s'),
         ], 'actuator_id = :actuator_id', ['actuator_id' => 'LOCK-001']);
+        $unlockUntil = setDoorUnlockUntil($db, $unlockWindowSeconds);
         clearPendingAccess($db);
         recordAccessScanEvent($db, 'FINGERPRINT', $fingerprintId, 'granted', 'Fingerprint matched, access granted', [
             'rfid_uid' => (string) $pending['rfid_uid'],
@@ -855,6 +946,7 @@ function verifyAccess($db, array $input): void
             'details' => [
                 'door_unlocked' => true,
                 'unlock_window_seconds' => $unlockWindowSeconds,
+                'unlock_until' => $unlockUntil,
             ],
         ]);
 
@@ -864,6 +956,7 @@ function verifyAccess($db, array $input): void
             'user_name' => $pending['user_name'],
             'source' => $source,
             'unlock_window_seconds' => $unlockWindowSeconds,
+            'unlock_until' => $unlockUntil,
         ]);
         createAccessEventLog($db, "Access granted for {$pending['user_name']}. Door unlocked after RFID and fingerprint verification.", 1, [
             'status' => 'granted',
@@ -873,17 +966,51 @@ function verifyAccess($db, array $input): void
             'source' => $source,
             'door_unlocked' => true,
             'unlock_window_seconds' => $unlockWindowSeconds,
+            'unlock_until' => $unlockUntil,
         ]);
 
         successResponse([
             'verified' => true,
             'door_unlocked' => true,
             'unlock_window_seconds' => $unlockWindowSeconds,
+            'unlock_until' => $unlockUntil,
             'access_control' => getAccessControlStatus($db),
         ], 'RFID and fingerprint verified. Door unlocked.');
     }
 
     errorResponse('Provide an RFID UID or fingerprint ID');
+}
+
+function normalizeFingerprintId(string $value): string
+{
+    $normalized = strtoupper(trim($value));
+    if ($normalized === '') {
+        return '';
+    }
+
+    if (preg_match('/^\d+$/', $normalized) === 1) {
+        $numeric = max(0, (int) $normalized);
+        if ($numeric >= 500 && $numeric <= 627) {
+            $numeric -= 500;
+        }
+        if ($numeric <= 127) {
+            return sprintf('FP-%03d', $numeric);
+        }
+        return 'FP-' . $numeric;
+    }
+
+    if (preg_match('/^FP[-_\s]*(\d{1,3})$/', $normalized, $matches) === 1) {
+        $numeric = max(0, (int) $matches[1]);
+        if ($numeric >= 500 && $numeric <= 627) {
+            $numeric -= 500;
+        }
+        if ($numeric <= 127) {
+            return sprintf('FP-%03d', $numeric);
+        }
+        return 'FP-' . $numeric;
+    }
+
+    return $normalized;
 }
 
 function getSystemHealth(): array {
