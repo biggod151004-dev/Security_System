@@ -12,6 +12,8 @@
         cameras: [],
         controlStatus: {},
         accessControl: null,
+        accessProfiles: [],
+        accessProfileEditingRfid: null,
         logs: [],
         logFilters: {
             type: 'all',
@@ -358,6 +360,64 @@
             mode === 'armed' ? 'success' : mode === 'disarmed' ? 'warning' : 'info'
         );
         renderControlActuators(actuators);
+        renderAccessProfilesTable(PageState.accessProfiles);
+    }
+
+    function populateAccessProfileForm(profile) {
+        const userNameInput = document.getElementById('accessUserNameInput');
+        const rfidInput = document.getElementById('accessRfidInput');
+        const fingerprintInput = document.getElementById('accessFingerprintInput');
+        const roleInput = document.getElementById('accessRoleInput');
+
+        if (userNameInput) userNameInput.value = String(profile?.name || '');
+        if (rfidInput) rfidInput.value = String(profile?.rfid_uid || '');
+        if (fingerprintInput) fingerprintInput.value = String(profile?.fingerprint_id || '');
+        if (roleInput) roleInput.value = String(profile?.role || '');
+
+        PageState.accessProfileEditingRfid = profile?.rfid_uid ? String(profile.rfid_uid).toUpperCase() : null;
+    }
+
+    function clearAccessProfileForm() {
+        populateAccessProfileForm(null);
+    }
+
+    function renderAccessProfilesTable(profiles) {
+        const tableBody = document.getElementById('accessProfilesTableBody');
+        const countBadge = document.getElementById('accessProfileCountBadge');
+        if (!tableBody) return;
+
+        const rows = Array.isArray(profiles) ? profiles : [];
+        if (countBadge) {
+            countBadge.textContent = `${rows.length} profile${rows.length === 1 ? '' : 's'}`;
+        }
+
+        if (rows.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="5" style="color:var(--text-secondary);">No access profiles found. Add an admin profile to enable RFID + fingerprint access.</td>
+                </tr>
+            `;
+            return;
+        }
+
+        tableBody.innerHTML = rows.map((profile) => {
+            const rfid = String(profile?.rfid_uid || '').toUpperCase();
+            const isEditing = PageState.accessProfileEditingRfid && rfid === PageState.accessProfileEditingRfid;
+            return `
+                <tr>
+                    <td>${escapeHtml(profile?.name || 'Authorized User')}</td>
+                    <td>${escapeHtml(rfid || 'N/A')}</td>
+                    <td>${escapeHtml(profile?.fingerprint_id || 'N/A')}</td>
+                    <td>${escapeHtml(profile?.role || 'User')}</td>
+                    <td>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn btn-secondary ${isEditing ? 'is-active' : ''}" type="button" data-access-action="edit" data-rfid-uid="${escapeHtml(rfid)}">Edit</button>
+                            <button class="btn btn-danger" type="button" data-access-action="delete" data-rfid-uid="${escapeHtml(rfid)}">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 
     // Override legacy unit formatting so sensor pages show stable ASCII labels.
@@ -1754,6 +1814,27 @@
         return response;
     }
 
+    async function fetchAccessProfiles() {
+        const response = await apiGet('control.php', '?access_profiles=1');
+        return Array.isArray(response?.data?.profiles) ? response.data.profiles : [];
+    }
+
+    async function upsertAccessProfile(profile) {
+        const response = await apiSend('control.php', 'POST', {
+            action: 'upsert_access_profile',
+            ...profile
+        });
+        return response;
+    }
+
+    async function removeAccessProfileByRfid(rfidUid) {
+        const response = await apiSend('control.php', 'POST', {
+            action: 'remove_access_profile',
+            rfid_uid: rfidUid
+        });
+        return response;
+    }
+
     async function resetAccessVerification() {
         const response = await apiSend('control.php', 'POST', {
             action: 'reset_access_flow',
@@ -1942,8 +2023,13 @@
     }
 
     async function initControlPage() {
-        const statusRes = await apiGet('control.php', '?status=1');
+        const [statusRes, profiles] = await Promise.all([
+            apiGet('control.php', '?status=1'),
+            fetchAccessProfiles()
+        ]);
+        PageState.accessProfiles = profiles;
         renderControlPageView(statusRes.data || {});
+        bindControlPageControls();
     }
 
     async function initThreatsPage() {
@@ -1996,6 +2082,56 @@
         });
 
         PageState.bindings.sensorsPage = true;
+    }
+
+    function bindControlPageControls() {
+        if (PageState.bindings.controlPage) return;
+
+        const saveButton = document.getElementById('saveAccessProfileBtn');
+        const clearButton = document.getElementById('clearAccessProfileFormBtn');
+        const userNameInput = document.getElementById('accessUserNameInput');
+        const rfidInput = document.getElementById('accessRfidInput');
+        const fingerprintInput = document.getElementById('accessFingerprintInput');
+        const roleInput = document.getElementById('accessRoleInput');
+
+        if (saveButton) {
+            saveButton.addEventListener('click', async () => {
+                const name = String(userNameInput?.value || '').trim();
+                const rfidUid = String(rfidInput?.value || '').trim().toUpperCase();
+                const fingerprintId = String(fingerprintInput?.value || '').trim();
+                const role = String(roleInput?.value || '').trim();
+
+                if (!rfidUid || !fingerprintId) {
+                    notify('Access Profiles', 'RFID UID and Fingerprint ID are required.', 'warning');
+                    return;
+                }
+
+                saveButton.disabled = true;
+                try {
+                    await upsertAccessProfile({
+                        name: name || 'Authorized User',
+                        rfid_uid: rfidUid,
+                        fingerprint_id: fingerprintId,
+                        role: role || 'Administrator'
+                    });
+                    await initControlPage();
+                    populateAccessProfileForm(null);
+                    notify('Access Profiles', 'Profile saved successfully.', 'success');
+                } catch (error) {
+                    notify('Access Profiles', error.message || 'Failed to save profile.', 'error');
+                } finally {
+                    saveButton.disabled = false;
+                }
+            });
+        }
+
+        if (clearButton) {
+            clearButton.addEventListener('click', () => {
+                clearAccessProfileForm();
+            });
+        }
+
+        PageState.bindings.controlPage = true;
     }
 
     function bindLogsPageControls() {
@@ -2170,6 +2306,44 @@
                         url: captureButton.dataset.captureUrl || getCameraSnapshotUrl(getPrimaryCamera(PageState.cameras))
                     };
                 if (capture) openCaptureModal(capture);
+                return;
+            }
+
+            const accessProfileButton = event.target.closest('[data-access-action][data-rfid-uid]');
+            if (accessProfileButton) {
+                const action = String(accessProfileButton.dataset.accessAction || '');
+                const rfidUid = String(accessProfileButton.dataset.rfidUid || '').trim().toUpperCase();
+                if (!rfidUid) return;
+
+                if (action === 'edit') {
+                    const profile = (PageState.accessProfiles || []).find((item) => String(item?.rfid_uid || '').toUpperCase() === rfidUid);
+                    if (!profile) {
+                        notify('Access Profiles', `Profile ${rfidUid} not found.`, 'warning');
+                        return;
+                    }
+                    populateAccessProfileForm(profile);
+                    notify('Access Profiles', `Editing profile ${rfidUid}.`, 'info');
+                    return;
+                }
+
+                if (action === 'delete') {
+                    const confirmed = window.confirm(`Delete access profile for RFID ${rfidUid}?`);
+                    if (!confirmed) return;
+
+                    accessProfileButton.disabled = true;
+                    try {
+                        await removeAccessProfileByRfid(rfidUid);
+                        await initControlPage();
+                        if (PageState.accessProfileEditingRfid === rfidUid) {
+                            clearAccessProfileForm();
+                        }
+                        notify('Access Profiles', `Profile ${rfidUid} deleted.`, 'success');
+                    } catch (error) {
+                        notify('Access Profiles', error.message || 'Failed to delete profile.', 'error');
+                    } finally {
+                        accessProfileButton.disabled = false;
+                    }
+                }
             }
         });
 
