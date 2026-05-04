@@ -4,6 +4,9 @@
 (function () {
     'use strict';
 
+    const FAST_SENSOR_POLL_MS = 800;
+    const FULL_REFRESH_POLL_MS = 1500;
+
     const RTState = {
         snapshot: {
             sensors: [],
@@ -18,6 +21,10 @@
         alertState: {
             sensorActive: {},
             lastAccessEventKey: ''
+        },
+        inFlight: {
+            sensorsOnly: false,
+            full: false
         }
     };
 
@@ -212,6 +219,10 @@
     }
 
     async function fetchAllData() {
+        if (RTState.inFlight.full) {
+            return;
+        }
+        RTState.inFlight.full = true;
         try {
             const [sensorRes, threatRes, logsRes, blockRes, cameraRes, statusRes] = await Promise.all([
                 apiGet('sensors.php'),
@@ -240,6 +251,29 @@
             dispatchRealtimeEvent('jarvis:realtime-error', {
                 message: error.message || 'Realtime polling failed'
             });
+        } finally {
+            RTState.inFlight.full = false;
+        }
+    }
+
+    async function fetchSensorsOnly() {
+        if (RTState.inFlight.sensorsOnly || RTState.inFlight.full) {
+            return;
+        }
+        RTState.inFlight.sensorsOnly = true;
+        try {
+            const sensorRes = await apiGet('sensors.php');
+            RTState.snapshot.sensors = sensorRes?.data?.sensors || [];
+            RTState.snapshot.sensors.forEach(appendSensorHistory);
+            evaluateSensorAlertTransitions(RTState.snapshot.sensors);
+            dispatchRealtimeEvent('jarvis:realtime', getSnapshot());
+        } catch (error) {
+            console.error('Realtime sensor poll failed:', error);
+            dispatchRealtimeEvent('jarvis:realtime-error', {
+                message: error.message || 'Realtime sensor polling failed'
+            });
+        } finally {
+            RTState.inFlight.sensorsOnly = false;
         }
     }
 
@@ -285,10 +319,15 @@
         }
 
         fetchAllData();
-        RTState.pollTimers.general = window.setInterval(fetchAllData, 4000);
+        RTState.pollTimers.sensors = window.setInterval(fetchSensorsOnly, FAST_SENSOR_POLL_MS);
+        RTState.pollTimers.general = window.setInterval(fetchAllData, FULL_REFRESH_POLL_MS);
     }
 
     function stopPolling() {
+        if (RTState.pollTimers.sensors) {
+            window.clearInterval(RTState.pollTimers.sensors);
+            RTState.pollTimers.sensors = null;
+        }
         if (RTState.pollTimers.general) {
             window.clearInterval(RTState.pollTimers.general);
             RTState.pollTimers.general = null;
@@ -300,6 +339,7 @@
     window.JarvisRealtime = {
         state: RTState,
         fetchAllData,
+        fetchSensorsOnly,
         startPolling,
         stopPolling,
         getSnapshot,
