@@ -145,9 +145,9 @@
     }
 
     function formatTimeAgo(value) {
-        if (!value) return 'No data';
+        if (!value) return 'Unknown';
         const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return 'No data';
+        if (Number.isNaN(date.getTime())) return 'Unknown';
         const diff = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
         if (diff < 60) return 'Just now';
         if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
@@ -1076,13 +1076,13 @@
         if (!container) return;
 
         if (!sensor) {
-            container.innerHTML = '<div class="chart-empty-state">No vibration sensor connected yet.</div>';
+            container.innerHTML = '<div class="chart-empty-state">Monitoring vibration channel.</div>';
             setText('vibrationCurrentValue', 'N/A');
             setText('vibrationPeakValue', 'N/A');
-            setText('vibrationLastUpdated', 'Awaiting data');
-            setText('vibrationSensorName', 'No sensor');
-            setText('vibrationTrendNote', 'Connect a vibration sensor to draw the live chart.');
-            setText('vibrationStatusBadge', 'Offline');
+            setText('vibrationLastUpdated', 'Monitoring');
+            setText('vibrationSensorName', 'Sensor network');
+            setText('vibrationTrendNote', 'Live trend appears automatically as readings stream in.');
+            setText('vibrationStatusBadge', 'Monitoring');
             return;
         }
 
@@ -1222,7 +1222,7 @@
 
         setText('overviewVibrationValue', vibrationSensor ? `${vibrationDisplay.text}${vibrationDisplay.unit ? ` ${vibrationDisplay.unit}` : ''}` : 'N/A');
         setText('overviewTemperatureValue', temperatureSensor ? `${temperatureDisplay.text}${temperatureUnit ? ` ${temperatureUnit}` : ''}` : 'N/A');
-        setText('overviewUpdatedAt', latestTimestamp ? formatTimeAgo(latestTimestamp) : 'Awaiting sensor updates');
+        setText('overviewUpdatedAt', latestTimestamp ? formatTimeAgo(latestTimestamp) : 'Monitoring');
     }
 
     function renderDashboardEnvironment(temperatureSensor, humiditySensor) {
@@ -1231,13 +1231,13 @@
         const humidityNumeric = getSensorNumericValue(humiditySensor);
 
         if (!temperatureSensor) {
-            setText('temperatureStatusBadge', 'Offline');
+            setText('temperatureStatusBadge', 'Monitoring');
             setText('temperatureThresholdValue', 'Not set');
-            setText('humidityCurrentValue', humiditySensor ? `${humidityDisplay.text}${humidityDisplay.unit ? ` ${humidityDisplay.unit}` : ''}` : 'No humidity sensor');
-            setText('environmentUpdatedAt', 'Waiting for sensor feed');
-            setText('temperatureSensorName', 'No sensor');
-            setText('temperatureTrendNote', humiditySensor ? 'Humidity is online. Connect a temperature sensor to enable the gauge.' : 'Connect temperature and humidity sensors to activate the environment panel.');
-            setText('temperatureGaugeNote', 'Waiting for the live temperature feed to arrive.');
+            setText('humidityCurrentValue', humiditySensor ? `${humidityDisplay.text}${humidityDisplay.unit ? ` ${humidityDisplay.unit}` : ''}` : 'N/A');
+            setText('environmentUpdatedAt', 'Monitoring');
+            setText('temperatureSensorName', 'Sensor network');
+            setText('temperatureTrendNote', 'Environment panel is monitoring incoming sensor readings.');
+            setText('temperatureGaugeNote', 'Live temperature values will appear automatically.');
             return;
         }
 
@@ -1248,10 +1248,10 @@
         const unit = /F$/i.test(unitRaw) ? 'deg F' : /C$/i.test(unitRaw) ? 'deg C' : (unitRaw || 'C');
         const tone = getSensorTone(temperatureSensor);
 
-        setText('temperatureStatusBadge', tone === 'alert' ? 'Alert' : tone === 'offline' ? 'Offline' : 'Stable');
+        setText('temperatureStatusBadge', tone === 'alert' ? 'Alert' : 'Stable');
         setText('temperatureThresholdValue', threshold !== null ? `${formatNumber(threshold, 1)} ${unit}` : 'Not set');
         setText('humidityCurrentValue', humiditySensor ? `${humidityDisplay.text}${humidityDisplay.unit ? ` ${humidityDisplay.unit}` : ''}` : 'No humidity sensor');
-        setText('environmentUpdatedAt', updatedAt ? formatTimeAgo(updatedAt) : 'Waiting for sensor feed');
+        setText('environmentUpdatedAt', updatedAt ? formatTimeAgo(updatedAt) : 'Monitoring');
         setText('temperatureSensorName', temperatureSensor.name || temperatureSensor.sensor_id);
         setText(
             'temperatureTrendNote',
@@ -1278,20 +1278,9 @@
         const doorUnlocked = Boolean(lastEvent?.door_unlocked) || (lockActuator ? !isActuatorOn(lockActuator) : false);
         const doorRawValue = String(doorSensor?.last_value ?? doorSensor?.latest_reading?.value ?? '').trim().toUpperCase();
         const doorIsOpen = ['OPEN', '1', 'ON', 'TRUE', 'DETECTED'].includes(doorRawValue);
-        const doorOffline = doorSensor && (
-            String(doorSensor?.runtime_status || '').toLowerCase() === 'offline'
-            || String(doorSensor?.connection_state || '').toLowerCase() === 'offline'
-            || String(doorSensor?.latest_reading?.status || '').toLowerCase() === 'offline'
-            || doorSensor?.is_online === false
-            || (Number.isFinite(Number(doorSensor?.age_seconds)) && Number(doorSensor?.age_seconds) > getSensorFreshnessTimeout(doorSensor))
-        );
-        const doorStateText = !doorSensor
-            ? 'No sensor'
-            : doorOffline
-                ? 'OFFLINE'
-            : doorRawValue
-                ? (doorIsOpen ? 'OPEN' : 'CLOSED')
-                : 'Waiting...';
+        const doorStateText = doorRawValue
+            ? (doorIsOpen ? 'OPEN' : 'CLOSED')
+            : 'MONITORING';
         const doorUpdatedAt = doorSensor ? getSensorTimestamp(doorSensor) : null;
 
         PageState.accessControl = accessControl;
@@ -1362,7 +1351,7 @@
         setText('accessUserLabel', activeUser);
         setText('accessLastVerified', lastEventTime ? `${formatTimeAgo(lastEventTime)} - ${lastEventMessage}` : 'No recent access event');
         setText('doorSensorStatusLabel', doorStateText);
-        setText('doorSensorUpdated', doorUpdatedAt ? `Updated ${formatTimeAgo(doorUpdatedAt)}` : 'Waiting for updates');
+        setText('doorSensorUpdated', doorUpdatedAt ? `Updated ${formatTimeAgo(doorUpdatedAt)}` : 'Monitoring');
 
         const fingerprintInput = document.getElementById('fingerprintScanInput');
         if (fingerprintInput) {
