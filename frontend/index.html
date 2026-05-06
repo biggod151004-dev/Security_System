@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>J.A.R.V.I.S Security Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="css/animations.css">
+    <link rel="stylesheet" href="css/styles.css?v=20260506-2">
+    <link rel="stylesheet" href="css/animations.css?v=20260506-2">
 </head>
 <body>
     <!-- Auth Check -->
@@ -134,13 +134,13 @@
                             </div>
                             <div class="insight-stat">
                                 <span class="insight-label">Updated</span>
-                                <strong id="vibrationLastUpdated">Awaiting data</strong>
+                                <strong id="vibrationLastUpdated">Monitoring</strong>
                             </div>
                         </div>
                         <div class="chart-container dashboard-chart-shell" id="vibrationChart"></div>
                         <div class="insight-footer">
-                            <span id="vibrationSensorName">No sensor</span>
-                            <span id="vibrationTrendNote">Connect a vibration sensor to start plotting live movement.</span>
+                            <span id="vibrationSensorName">Sensor network</span>
+                            <span id="vibrationTrendNote">Live trend initializes as readings stream in.</span>
                         </div>
                     </div>
                 </div>
@@ -165,13 +165,13 @@
                                     </div>
                                     <div class="insight-stat">
                                         <span class="insight-label">Updated</span>
-                                        <strong id="environmentUpdatedAt">Waiting for sensor feed</strong>
+                                        <strong id="environmentUpdatedAt">Monitoring</strong>
                                     </div>
                                 </div>
-                                <p class="temperature-gauge-note" id="temperatureGaugeNote">Waiting for the live temperature feed to arrive.</p>
+                                <p class="temperature-gauge-note" id="temperatureGaugeNote">Live temperature readings appear automatically.</p>
                                 <div class="insight-footer">
-                                    <span id="temperatureSensorName">No sensor</span>
-                                    <span id="temperatureTrendNote">Connect temperature and humidity sensors to activate the environment panel.</span>
+                                    <span id="temperatureSensorName">Sensor network</span>
+                                    <span id="temperatureTrendNote">Environment panel is monitoring incoming sensor readings.</span>
                                 </div>
                             </div>
                         </div>
@@ -297,8 +297,8 @@
                                 </div>
                                 <div class="insight-stat">
                                     <span class="insight-label">Door Sensor</span>
-                                    <strong id="doorSensorStatusLabel">No sensor data</strong>
-                                    <small id="doorSensorUpdated" style="display:block;color:var(--text-secondary);margin-top:4px;">Waiting for updates</small>
+                                    <strong id="doorSensorStatusLabel">MONITORING</strong>
+                                    <small id="doorSensorUpdated" style="display:block;color:var(--text-secondary);margin-top:4px;">Monitoring</small>
                                 </div>
                             </div>
                             <div class="control-actions access-reset-row">
@@ -343,7 +343,7 @@
         <div class="jarvis-chat-window" id="jarvisChatWindow">
             <div class="jarvis-chat-header">
                 <span class="jarvis-chat-title">JARVIS AI Assistant</span>
-                <button class="jarvis-chat-close" onclick="toggleJarvisChat()">×</button>
+                <button class="jarvis-chat-close" onclick="toggleJarvisChat()">Ã—</button>
             </div>
             <div class="jarvis-chat-messages" id="chatMessages">
                 <div class="chat-message jarvis">
@@ -361,13 +361,14 @@
         </div>
     </div>
 
-    <script src="js/app.js?v=2"></script>
-    <script src="js/voice.js?v=2"></script>
-    <script src="js/jarvis.js?v=2"></script>
-    <script src="js/pages.js?v=2"></script>
-    <script src="js/realtime.js?v=2"></script>
+    <script src="js/app.js?v=20260506-2"></script>
+    <script src="js/voice.js?v=20260506-2"></script>
+    <script src="js/jarvis.js?v=20260506-2"></script>
+    <script src="js/pages.js?v=20260506-2"></script>
+    <script src="js/realtime.js?v=20260506-2"></script>
 </body>
 </html>
+
 
 
 
