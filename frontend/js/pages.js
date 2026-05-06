@@ -718,15 +718,34 @@
         };
     }
 
-    function buildThreatStats(threats, existing = {}) {
+    function buildThreatStats(threats, existing = {}, options = {}) {
+        const list = Array.isArray(threats) ? threats : [];
+        const preferLive = Boolean(options.preferLive);
+
+        const critical = list.filter((threat) => threat.severity === 'critical').length;
+        const high = list.filter((threat) => threat.severity === 'high').length;
+        const medium = list.filter((threat) => threat.severity === 'medium').length;
+        const low = list.filter((threat) => threat.severity === 'low').length;
+        const active = list.length;
+
+        const resolvedParsed = Number(existing?.resolved);
+        const resolved = Number.isFinite(resolvedParsed) && resolvedParsed >= 0 ? resolvedParsed : 0;
+
+        const historicalTotalParsed = Number(existing?.total);
+        const historicalTotal = Number.isFinite(historicalTotalParsed) && historicalTotalParsed >= 0
+            ? historicalTotalParsed
+            : (active + resolved);
+
+        const total = preferLive ? (active + resolved) : historicalTotal;
+
         return {
-            total: typeof existing.total === 'number' ? existing.total : threats.length,
-            critical: typeof existing.critical === 'number' ? existing.critical : threats.filter((threat) => threat.severity === 'critical').length,
-            high: typeof existing.high === 'number' ? existing.high : threats.filter((threat) => threat.severity === 'high').length,
-            medium: typeof existing.medium === 'number' ? existing.medium : threats.filter((threat) => threat.severity === 'medium').length,
-            low: typeof existing.low === 'number' ? existing.low : threats.filter((threat) => threat.severity === 'low').length,
-            active: typeof existing.active === 'number' ? existing.active : threats.length,
-            resolved: typeof existing.resolved === 'number' ? existing.resolved : 0
+            total,
+            critical,
+            high,
+            medium,
+            low,
+            active,
+            resolved
         };
     }
 
@@ -2050,7 +2069,7 @@
         ]);
 
         const threats = threatRes.data?.threats || [];
-        const stats = buildThreatStats(threats, statsRes.data?.stats || {});
+        const stats = buildThreatStats(threats, statsRes.data?.stats || {}, { preferLive: true });
         renderThreatsPageView(threats, stats);
     }
 
@@ -2373,7 +2392,10 @@
             return;
         }
         if (pageName === 'threats.html') {
-            renderThreatsPageView(snapshot.threats || [], buildThreatStats(snapshot.threats || [], PageState.threatStats));
+            renderThreatsPageView(
+                snapshot.threats || [],
+                buildThreatStats(snapshot.threats || [], PageState.threatStats, { preferLive: true })
+            );
             return;
         }
         if (pageName === 'logs.html') {
