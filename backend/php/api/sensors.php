@@ -18,6 +18,11 @@ if (!is_array($input)) {
 
 $db = getDB();
 
+const SENSOR_OFFLINE_TIMEOUT_SECONDS = 10;
+const SENSOR_TIMESTAMP_MAX_PAST_SECONDS = 120;
+const SENSOR_TIMESTAMP_MAX_FUTURE_SECONDS = 30;
+const SENSOR_ALERT_DEDUPE_WINDOW_SECONDS = 12;
+
 try {
     switch ($method) {
         case 'GET':
@@ -56,6 +61,12 @@ function handleGet($db, array $params): void
             'SELECT * FROM sensor_data WHERE sensor_id = :sensor_id ORDER BY recorded_at DESC LIMIT 100',
             ['sensor_id' => $sensor['sensor_id']]
         );
+
+        $sensor['latest_reading'] = $db->fetch(
+            'SELECT value, numeric_value, status, recorded_at FROM sensor_data WHERE sensor_id = :sensor_id ORDER BY recorded_at DESC LIMIT 1',
+            ['sensor_id' => $sensor['sensor_id']]
+        );
+        $sensor = enrichSensorRuntimeState($db, $sensor);
 
         successResponse($sensor);
     }
@@ -108,6 +119,7 @@ function handleGet($db, array $params): void
             'SELECT value, numeric_value, status, recorded_at FROM sensor_data WHERE sensor_id = :sensor_id ORDER BY recorded_at DESC LIMIT 1',
             ['sensor_id' => $sensor['sensor_id']]
         );
+        $sensor = enrichSensorRuntimeState($db, $sensor);
     }
 
     successResponse(['sensors' => $sensors]);
@@ -116,9 +128,24 @@ function handleGet($db, array $params): void
 function handlePost($db, array $input): void
 {
     $esp32Id = !empty($input['esp32_id']) ? sanitize((string) $input['esp32_id']) : 'ESP32-MAIN';
+    $timestampMeta = validatePayloadTimestamp($input);
+
+    if (!empty($timestampMeta['has_timestamp']) && empty($timestampMeta['valid'])) {
+        successResponse([
+            'reading' => null,
+            'events' => [],
+            'ignored' => true,
+            'timestamp_valid' => false,
+            'reason' => $timestampMeta['reason'] ?? 'Invalid payload timestamp',
+        ], 'Sensor payload ignored due to invalid timestamp');
+    }
+
+    $recordedAt = !empty($timestampMeta['recorded_at']) ? (string) $timestampMeta['recorded_at'] : null;
 
     if (isset($input['readings']) && is_array($input['readings'])) {
-        $result = ingestBatchPayload($db, $input, $esp32Id);
+        $result = ingestBatchPayload($db, $input, $esp32Id, $recordedAt);
+        $result['timestamp_valid'] = !empty($timestampMeta['valid']) || empty($timestampMeta['has_timestamp']);
+        $result['recorded_at'] = $recordedAt;
         successResponse($result, 'Sensor payload stored successfully');
     }
 
@@ -145,12 +172,14 @@ function handlePost($db, array $input): void
         ], 'Sensor is off. Incoming data ignored.');
     }
 
-    $stored = storeSensorReading($db, $sensor, $input['value'] ?? null, $input, $esp32Id);
+    $stored = storeSensorReading($db, $sensor, $input['value'] ?? null, $input, $esp32Id, $recordedAt);
     $events = processSensorEventRules($db, $sensor, $input['value'] ?? null, $input, $esp32Id);
 
     successResponse([
         'reading' => $stored,
         'events' => $events,
+        'timestamp_valid' => !empty($timestampMeta['valid']) || empty($timestampMeta['has_timestamp']),
+        'recorded_at' => $recordedAt,
     ], 'Sensor data stored successfully');
 }
 
@@ -316,7 +345,7 @@ function clearTemporarySensorData($db, array $input): array
     ];
 }
 
-function ingestBatchPayload($db, array $input, string $esp32Id): array
+function ingestBatchPayload($db, array $input, string $esp32Id, ?string $recordedAt = null): array
 {
     $meta = getSensorBlueprints($input);
     $readings = $input['readings'];
@@ -345,7 +374,7 @@ function ingestBatchPayload($db, array $input, string $esp32Id): array
         $storedReadings[] = storeSensorReading($db, $sensor, $value, [
             'status' => inferSensorStatus($sensor['type'], $value, $sensorInfo['threshold_alert'] ?? null),
             'raw_data' => $readings,
-        ], $esp32Id);
+        ], $esp32Id, $recordedAt);
 
         $newEvents = isSensorMonitoringEnabled($sensor)
             ? processSensorEventRules($db, $sensor, $value, $input, $esp32Id)
@@ -460,8 +489,9 @@ function ensureSensorExists($db, array $sensorInfo, string $esp32Id): array
     return $sensor;
 }
 
-function storeSensorReading($db, array $sensor, $value, array $input, string $esp32Id): array
+function storeSensorReading($db, array $sensor, $value, array $input, string $esp32Id, ?string $recordedAt = null): array
 {
+    $recordedAt = $recordedAt ?: date('Y-m-d H:i:s');
     $numericValue = is_bool($value)
         ? ($value ? 1.0 : 0.0)
         : (is_numeric($value) ? (float) $value : null);
@@ -476,13 +506,14 @@ function storeSensorReading($db, array $sensor, $value, array $input, string $es
         'status' => $status,
         'raw_data' => isset($input['raw_data']) ? json_encode($input['raw_data']) : null,
         'esp32_id' => $esp32Id,
+        'recorded_at' => $recordedAt,
     ]);
 
     $db->update(
         'sensors',
         [
             'last_value' => $textValue,
-            'last_reading' => date('Y-m-d H:i:s'),
+            'last_reading' => $recordedAt,
             'esp32_id' => $esp32Id,
             'status' => $persistedStatus,
         ],
@@ -495,6 +526,7 @@ function storeSensorReading($db, array $sensor, $value, array $input, string $es
         'sensor_id' => $sensor['sensor_id'],
         'value' => $textValue,
         'status' => $status,
+        'recorded_at' => $recordedAt,
     ];
 }
 
@@ -512,7 +544,7 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
     $textValue = normalizeDisplayValue($type, $value);
 
     if ($type === 'motion' && isTruthyValue($value)) {
-        $events[] = createAlertWithSideEffects($db, [
+        $event = createSensorAlertWithDedupe($db, $sensor, [
             'type' => 'motion',
             'severity' => 'high',
             'source' => $sensor['sensor_id'],
@@ -520,10 +552,13 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
             'message' => 'Motion detected. Camera capture, buzzer, LED, lock and valve should activate.',
             'details' => ['esp32_id' => $esp32Id, 'value' => $textValue],
         ]);
+        if ($event !== null) {
+            $events[] = $event;
+        }
     }
 
     if ($type === 'vibration' && isVibrationAlert($numericValue, $value, $threshold)) {
-        $events[] = createAlertWithSideEffects($db, [
+        $event = createSensorAlertWithDedupe($db, $sensor, [
             'type' => 'vibration',
             'severity' => 'high',
             'source' => $sensor['sensor_id'],
@@ -533,11 +568,14 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
                 : 'Suspicious vibration detected: possible tampering.',
             'details' => ['esp32_id' => $esp32Id, 'value' => $numericValue ?? $textValue, 'threshold' => $threshold],
         ]);
+        if ($event !== null) {
+            $events[] = $event;
+        }
     }
 
     if ($type === 'temperature' && $numericValue !== null && $threshold !== null && $numericValue >= $threshold) {
         $isCriticalTemperature = $numericValue > 45.0;
-        $events[] = createAlertWithSideEffects($db, [
+        $event = createSensorAlertWithDedupe($db, $sensor, [
             'type' => 'temperature',
             'severity' => $isCriticalTemperature ? 'critical' : 'high',
             'source' => $sensor['sensor_id'],
@@ -552,10 +590,13 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
                 'value' => $numericValue,
             ],
         ]);
+        if ($event !== null) {
+            $events[] = $event;
+        }
     }
 
     if ($type === 'fire' && isTruthyValue($value)) {
-        $events[] = createAlertWithSideEffects($db, [
+        $event = createSensorAlertWithDedupe($db, $sensor, [
             'type' => 'fire',
             'severity' => 'critical',
             'source' => $sensor['sensor_id'],
@@ -563,10 +604,13 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
             'message' => 'Fire detected. Emergency response required.',
             'details' => ['esp32_id' => $esp32Id, 'value' => $textValue],
         ]);
+        if ($event !== null) {
+            $events[] = $event;
+        }
     }
 
     if ($type === 'door' && strtoupper($textValue) === 'OPEN') {
-        $events[] = createAlertWithSideEffects($db, [
+        $event = createSensorAlertWithDedupe($db, $sensor, [
             'type' => 'door',
             'severity' => 'high',
             'source' => $sensor['sensor_id'],
@@ -574,6 +618,9 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
             'message' => 'Warning: Door opened. Unauthorized access detected.',
             'details' => ['esp32_id' => $esp32Id, 'value' => $textValue],
         ]);
+        if ($event !== null) {
+            $events[] = $event;
+        }
     }
 
     return $events;
@@ -613,7 +660,7 @@ function createAlertFromExplicitEvent($db, array $event, string $esp32Id, array 
     $source = !empty($event['source']) ? sanitize((string) $event['source']) : $esp32Id;
     $message = !empty($event['message']) ? sanitize((string) $event['message']) : strtoupper($type) . ' event detected';
 
-    return createAlertWithSideEffects($db, [
+    return createSensorAlertWithDedupe($db, ['sensor_id' => $source], [
         'type' => $type,
         'severity' => $severity,
         'source' => $source,
@@ -625,6 +672,159 @@ function createAlertFromExplicitEvent($db, array $event, string $esp32Id, array 
             'raw_event' => $event,
         ],
     ]);
+}
+
+function createSensorAlertWithDedupe($db, array $sensor, array $payload): ?array
+{
+    $type = sanitize((string) ($payload['type'] ?? 'custom'));
+    $source = sanitize((string) ($payload['source'] ?? ($sensor['sensor_id'] ?? 'SENSOR')));
+    $message = sanitize((string) ($payload['message'] ?? 'Alert raised'));
+    $details = is_array($payload['details'] ?? null) ? $payload['details'] : [];
+    $currentValue = strtoupper(trim((string) ($details['value'] ?? '')));
+
+    $latest = $db->fetch(
+        "SELECT created_at, details
+         FROM alerts
+         WHERE source = :source
+           AND type = :type
+           AND message = :message
+           AND status IN ('active', 'acknowledged')
+         ORDER BY created_at DESC
+         LIMIT 1",
+        [
+            'source' => $source,
+            'type' => $type,
+            'message' => $message,
+        ]
+    );
+
+    if ($latest) {
+        $createdAtTs = strtotime((string) ($latest['created_at'] ?? ''));
+        $withinWindow = $createdAtTs !== false && (time() - $createdAtTs) <= SENSOR_ALERT_DEDUPE_WINDOW_SECONDS;
+
+        if ($withinWindow) {
+            $lastDetails = json_decode((string) ($latest['details'] ?? 'null'), true);
+            $lastValue = strtoupper(trim((string) ($lastDetails['value'] ?? '')));
+            if ($currentValue === '' || $lastValue === '' || $currentValue === $lastValue) {
+                return null;
+            }
+        }
+    }
+
+    return createAlertWithSideEffects($db, $payload);
+}
+
+function validatePayloadTimestamp(array $input): array
+{
+    $candidates = ['recorded_at', 'timestamp', 'ts', 'device_time', 'captured_at'];
+
+    foreach ($candidates as $field) {
+        if (!array_key_exists($field, $input) || $input[$field] === null || $input[$field] === '') {
+            continue;
+        }
+
+        $raw = trim((string) $input[$field]);
+        $timestamp = strtotime($raw);
+        if ($timestamp === false) {
+            return [
+                'has_timestamp' => true,
+                'valid' => false,
+                'recorded_at' => null,
+                'reason' => 'Invalid timestamp format',
+            ];
+        }
+
+        $now = time();
+        if ($timestamp < ($now - SENSOR_TIMESTAMP_MAX_PAST_SECONDS)) {
+            return [
+                'has_timestamp' => true,
+                'valid' => false,
+                'recorded_at' => null,
+                'reason' => 'Timestamp is too old for live telemetry',
+            ];
+        }
+
+        if ($timestamp > ($now + SENSOR_TIMESTAMP_MAX_FUTURE_SECONDS)) {
+            return [
+                'has_timestamp' => true,
+                'valid' => false,
+                'recorded_at' => null,
+                'reason' => 'Timestamp is too far in the future',
+            ];
+        }
+
+        return [
+            'has_timestamp' => true,
+            'valid' => true,
+            'recorded_at' => date('Y-m-d H:i:s', $timestamp),
+            'reason' => null,
+        ];
+    }
+
+    return [
+        'has_timestamp' => false,
+        'valid' => true,
+        'recorded_at' => null,
+        'reason' => null,
+    ];
+}
+
+function enrichSensorRuntimeState($db, array $sensor): array
+{
+    $latest = is_array($sensor['latest_reading'] ?? null) ? $sensor['latest_reading'] : null;
+    $lastSeenAt = $latest['recorded_at'] ?? ($sensor['last_reading'] ?? null);
+    $lastSeenTs = $lastSeenAt ? strtotime((string) $lastSeenAt) : false;
+    $ageSeconds = $lastSeenTs !== false ? max(0, time() - $lastSeenTs) : null;
+    $monitoringEnabled = isSensorMonitoringEnabled($sensor);
+    $isOnline = $monitoringEnabled && $ageSeconds !== null && $ageSeconds <= SENSOR_OFFLINE_TIMEOUT_SECONDS;
+    $runtimeStatus = 'offline';
+
+    if (!$monitoringEnabled) {
+        $runtimeStatus = 'inactive';
+    } elseif ($isOnline) {
+        $latestStatus = strtolower(trim((string) ($latest['status'] ?? 'normal')));
+        $runtimeStatus = $latestStatus === 'alert' ? 'alert' : 'normal';
+    }
+
+    if ($latest !== null) {
+        $latest['status'] = $runtimeStatus;
+        $sensor['latest_reading'] = $latest;
+    }
+
+    if ($monitoringEnabled && !$isOnline && !empty($sensor['sensor_id'])) {
+        resolveActiveSensorAlertsOnDisconnect($db, (string) $sensor['sensor_id']);
+    }
+
+    $sensor['freshness_timeout_seconds'] = SENSOR_OFFLINE_TIMEOUT_SECONDS;
+    $sensor['last_seen_at'] = $lastSeenAt;
+    $sensor['timestamp_valid'] = $lastSeenAt !== null && $lastSeenTs !== false;
+    $sensor['age_seconds'] = $ageSeconds;
+    $sensor['is_online'] = $isOnline;
+    $sensor['is_stale'] = !$isOnline;
+    $sensor['connection_state'] = $isOnline ? 'online' : 'offline';
+    $sensor['runtime_status'] = $runtimeStatus;
+    $sensor['is_alert'] = $runtimeStatus === 'alert';
+
+    return $sensor;
+}
+
+function resolveActiveSensorAlertsOnDisconnect($db, string $sensorId): void
+{
+    $db->query(
+        "UPDATE alerts
+         SET status = 'resolved', resolved_at = NOW()
+         WHERE source = :source
+           AND status IN ('active', 'acknowledged')",
+        ['source' => $sensorId]
+    );
+
+    $db->query(
+        "UPDATE threats
+         SET status = 'resolved', resolved_at = NOW()
+         WHERE source = :source
+           AND status IN ('active', 'monitoring', 'investigating')",
+        ['source' => $sensorId]
+    );
 }
 
 function inferSensorStatus(string $type, $value, $threshold): string
@@ -672,6 +872,18 @@ function normalizeDisplayValue(string $type, $value): string
         }
     }
 
+    $normalized = strtoupper(trim(sanitize((string) $value)));
+
+    if ($type === 'door') {
+        if (in_array($normalized, ['OPEN', 'ON', 'TRUE', '1', 'DETECTED', 'HIGH'], true)) {
+            return 'OPEN';
+        }
+
+        if (in_array($normalized, ['CLOSED', 'OFF', 'FALSE', '0', 'CLEAR', 'LOW', 'UNDETECTED'], true)) {
+            return 'CLOSED';
+        }
+    }
+
     return sanitize((string) $value);
 }
 
@@ -709,3 +921,4 @@ function sanitizeSensorStatus($status): string
 
     return $normalized;
 }
+
