@@ -6,6 +6,7 @@
 
     const FAST_SENSOR_POLL_MS = 800;
     const FULL_REFRESH_POLL_MS = 1500;
+    const SENSOR_OFFLINE_TIMEOUT_SECONDS = 10;
 
     const RTState = {
         snapshot: {
@@ -20,7 +21,8 @@
         pollTimers: {},
         alertState: {
             sensorActive: {},
-            lastAccessEventKey: ''
+            lastAccessEventKey: '',
+            lastAlertKeys: {}
         },
         inFlight: {
             sensorsOnly: false,
@@ -44,8 +46,14 @@
     }
 
     async function apiGet(endpoint, query = '') {
-        const response = await fetch(`${getApiBase()}/${endpoint}${query}`, {
-            headers: { Accept: 'application/json' }
+        const suffix = query && query.includes('?') ? '&' : '?';
+        const url = `${getApiBase()}/${endpoint}${query}${suffix}_rt=${Date.now()}`;
+        const response = await fetch(url, {
+            cache: 'no-store',
+            headers: {
+                Accept: 'application/json',
+                'Cache-Control': 'no-cache'
+            }
         });
 
         const data = await response.json().catch(() => ({}));
@@ -127,8 +135,35 @@
         return String(sensor?.sensor_id || sensor?.name || sensor?.type || '').trim();
     }
 
+    function isSensorOnline(sensor) {
+        if (!sensor) return false;
+
+        const explicitState = String(sensor?.connection_state || '').toLowerCase();
+        if (explicitState === 'online') return true;
+        if (explicitState === 'offline') return false;
+
+        if (typeof sensor?.is_online === 'boolean') {
+            return sensor.is_online;
+        }
+
+        const age = Number(sensor?.age_seconds);
+        if (Number.isFinite(age)) {
+            return age <= SENSOR_OFFLINE_TIMEOUT_SECONDS;
+        }
+
+        const tsRaw = sensor?.latest_reading?.recorded_at || sensor?.last_reading;
+        if (!tsRaw) return false;
+        const ts = Date.parse(tsRaw);
+        if (!Number.isFinite(ts)) return false;
+
+        return ((Date.now() - ts) / 1000) <= SENSOR_OFFLINE_TIMEOUT_SECONDS;
+    }
+
     function isSensorInAlert(sensor) {
         if (!sensor) return false;
+        if (!isSensorOnline(sensor)) return false;
+        if (String(sensor?.runtime_status || '').toLowerCase() === 'offline') return false;
+
         if (String(sensor.latest_reading?.status || '').toLowerCase() === 'alert') return true;
         if (String(sensor.status || '').toLowerCase() === 'error') return true;
         return false;
@@ -164,6 +199,14 @@
             next[identity] = alertStage;
 
             if (alertStage !== 'normal' && previous[identity] !== alertStage) {
+                const readingAt = String(sensor?.latest_reading?.recorded_at || sensor?.last_reading || '');
+                const alertKey = `${identity}|${alertStage}|${readingAt}`;
+                const persisted = String(sessionStorage.getItem(`jarvis_alert_key_${identity}`) || '');
+                if (persisted === alertKey) {
+                    return;
+                }
+                sessionStorage.setItem(`jarvis_alert_key_${identity}`, alertKey);
+
                 const numericValue = getSensorNumericValue(sensor);
                 newAlerts.push({
                     sensor_id: sensor.sensor_id || identity,
