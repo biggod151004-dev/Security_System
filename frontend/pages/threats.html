@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Threats - J.A.R.V.I.S Security</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../css/styles.css">
-    <link rel="stylesheet" href="../css/animations.css">
+    <link rel="stylesheet" href="../css/styles.css?v=20260506-2">
+    <link rel="stylesheet" href="../css/animations.css?v=20260506-2">
 </head>
 <body>
     <div class="particles" id="particles"></div>
@@ -303,13 +306,34 @@
         </div>
     </div>
 
-    <script src="../js/app.js?v=20260506-1"></script>
-    <script src="../js/voice.js?v=20260506-1"></script>
-    <script src="../js/jarvis.js?v=20260506-1"></script>
-    <script src="../js/pages.js?v=20260506-1"></script>
-    <script src="../js/realtime.js?v=20260506-1"></script>
+    <script>
+        (function syncThreatUiBuildState() {
+            const buildId = '20260506-2';
+            const key = 'jarvis_frontend_build';
+            const previousBuild = localStorage.getItem(key);
+
+            if (previousBuild === buildId) {
+                return;
+            }
+
+            localStorage.setItem(key, buildId);
+            sessionStorage.removeItem('jarvis_pending_alert_redirect');
+
+            Object.keys(sessionStorage).forEach((name) => {
+                if (name.indexOf('jarvis_alert_key_') === 0) {
+                    sessionStorage.removeItem(name);
+                }
+            });
+        })();
+    </script>
+    <script src="../js/app.js?v=20260506-2"></script>
+    <script src="../js/voice.js?v=20260506-2"></script>
+    <script src="../js/jarvis.js?v=20260506-2"></script>
+    <script src="../js/pages.js?v=20260506-2"></script>
+    <script src="../js/realtime.js?v=20260506-2"></script>
 </body>
 </html>
+
 
 
 
