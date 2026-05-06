@@ -4,8 +4,8 @@
 (function () {
     'use strict';
 
-    const FAST_SENSOR_POLL_MS = 800;
-    const FULL_REFRESH_POLL_MS = 1500;
+    const FAST_SENSOR_POLL_MS = 350;
+    const FULL_REFRESH_POLL_MS = 1200;
     const SENSOR_OFFLINE_TIMEOUT_SECONDS = 120;
 
     const RTState = {
