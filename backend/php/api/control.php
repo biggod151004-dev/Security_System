@@ -791,10 +791,26 @@ function resetAccessFlow($db, array $input): void
     ], 'Access verification flow reset successfully');
 }
 
+function readFirstNonEmptyInput(array $input, array $keys): string
+{
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $input)) {
+            continue;
+        }
+        $value = trim((string) $input[$key]);
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
+}
+
 function verifyAccess($db, array $input): void
 {
-    $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
-    $fingerprintId = normalizeFingerprintId((string) ($input['fingerprint_id'] ?? ''));
+    $rfidUid = strtoupper(readFirstNonEmptyInput($input, ['rfid_uid', 'rfid', 'uid', 'card_uid']));
+    $fingerprintRaw = readFirstNonEmptyInput($input, ['fingerprint_id', 'fingerprint', 'finger_id', 'template_id', 'fingerprint_uid']);
+    $fingerprintId = normalizeFingerprintId($fingerprintRaw);
     $source = !empty($input['source']) ? sanitize((string) $input['source']) : 'CONTROL_PANEL';
     $profiles = getAccessProfiles($db);
 
@@ -825,7 +841,7 @@ function verifyAccess($db, array $input): void
 
         $pending = [
             'rfid_uid' => $rfidUid,
-            'fingerprint_id' => strtoupper((string) ($profile['fingerprint_id'] ?? '')),
+            'fingerprint_id' => normalizeFingerprintId((string) ($profile['fingerprint_id'] ?? '')),
             'user_name' => (string) ($profile['name'] ?? 'Authorized User'),
             'role' => (string) ($profile['role'] ?? 'User'),
             'source' => $source,
@@ -981,6 +997,18 @@ function verifyAccess($db, array $input): void
     errorResponse('Provide an RFID UID or fingerprint ID');
 }
 
+function normalizeFingerprintNumeric(int $numeric): string
+{
+    $numeric = max(0, $numeric);
+    if ($numeric >= 500 && $numeric <= 627) {
+        $numeric -= 500;
+    }
+    if ($numeric <= 127) {
+        return sprintf('FP-%03d', $numeric);
+    }
+    return 'FP-' . $numeric;
+}
+
 function normalizeFingerprintId(string $value): string
 {
     $normalized = strtoupper(trim($value));
@@ -989,25 +1017,16 @@ function normalizeFingerprintId(string $value): string
     }
 
     if (preg_match('/^\d+$/', $normalized) === 1) {
-        $numeric = max(0, (int) $normalized);
-        if ($numeric >= 500 && $numeric <= 627) {
-            $numeric -= 500;
-        }
-        if ($numeric <= 127) {
-            return sprintf('FP-%03d', $numeric);
-        }
-        return 'FP-' . $numeric;
+        return normalizeFingerprintNumeric((int) $normalized);
     }
 
     if (preg_match('/^FP[-_\s]*(\d{1,3})$/', $normalized, $matches) === 1) {
-        $numeric = max(0, (int) $matches[1]);
-        if ($numeric >= 500 && $numeric <= 627) {
-            $numeric -= 500;
-        }
-        if ($numeric <= 127) {
-            return sprintf('FP-%03d', $numeric);
-        }
-        return 'FP-' . $numeric;
+        return normalizeFingerprintNumeric((int) $matches[1]);
+    }
+
+    // Compatibility: scanners often emit strings like "ID: 1", "#501", or "Finger ID 3".
+    if (preg_match('/(?:^|[^A-Z0-9])(?:FP|FINGER|FINGERPRINT|ID)?\s*[:#-]?\s*(\d{1,3})(?:[^0-9]|$)/', $normalized, $matches) === 1) {
+        return normalizeFingerprintNumeric((int) $matches[1]);
     }
 
     return $normalized;
