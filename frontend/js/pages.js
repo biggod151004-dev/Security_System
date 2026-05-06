@@ -43,8 +43,13 @@
     }
 
     async function apiGet(endpoint, query = '') {
-        const response = await fetch(`${getApiBase()}/${endpoint}${query}`, {
-            headers: { Accept: 'application/json' }
+        const suffix = query && query.includes('?') ? '&' : '?';
+        const response = await fetch(`${getApiBase()}/${endpoint}${query}${suffix}_rt=${Date.now()}`, {
+            cache: 'no-store',
+            headers: {
+                Accept: 'application/json',
+                'Cache-Control': 'no-cache'
+            }
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || data.success === false) {
@@ -259,6 +264,16 @@
 
     function getSensorTone(sensor) {
         if (!sensor) return 'offline';
+        const runtimeStatus = String(sensor.runtime_status || '').toLowerCase();
+        const readingStatus = String(sensor.latest_reading?.status || '').toLowerCase();
+        const connectionState = String(sensor.connection_state || '').toLowerCase();
+        let isOnline = sensor.is_online === true || connectionState === 'online';
+        if (sensor.is_online !== true && sensor.is_online !== false && connectionState !== 'online' && connectionState !== 'offline') {
+            const ageSeconds = Number(sensor.age_seconds);
+            isOnline = Number.isFinite(ageSeconds) ? ageSeconds <= 10 : true;
+        }
+
+        if (runtimeStatus === 'offline' || readingStatus === 'offline' || connectionState === 'offline' || !isOnline) return 'offline';
         if (String(sensor.latest_reading?.status || '').toLowerCase() === 'alert') return 'alert';
         if (sensor.status === 'inactive' || sensor.status === 'maintenance') return 'offline';
         if (sensor.status === 'error') return 'alert';
@@ -451,6 +466,16 @@
 
     function getSensorTone(sensor) {
         if (!sensor) return 'offline';
+        const runtimeStatus = String(sensor.runtime_status || '').toLowerCase();
+        const readingStatus = String(sensor.latest_reading?.status || '').toLowerCase();
+        const connectionState = String(sensor.connection_state || '').toLowerCase();
+        let isOnline = sensor.is_online === true || connectionState === 'online';
+        if (sensor.is_online !== true && sensor.is_online !== false && connectionState !== 'online' && connectionState !== 'offline') {
+            const ageSeconds = Number(sensor.age_seconds);
+            isOnline = Number.isFinite(ageSeconds) ? ageSeconds <= 10 : true;
+        }
+
+        if (runtimeStatus === 'offline' || readingStatus === 'offline' || connectionState === 'offline' || !isOnline) return 'offline';
         if (sensor.status === 'inactive' || sensor.status === 'maintenance') return 'offline';
         if (sensor.status === 'error') return 'alert';
         if (String(sensor.latest_reading?.status || '').toLowerCase() === 'alert') return 'alert';
@@ -1209,8 +1234,17 @@
         const doorUnlocked = Boolean(lastEvent?.door_unlocked) || (lockActuator ? !isActuatorOn(lockActuator) : false);
         const doorRawValue = String(doorSensor?.last_value ?? doorSensor?.latest_reading?.value ?? '').trim().toUpperCase();
         const doorIsOpen = ['OPEN', '1', 'ON', 'TRUE', 'DETECTED'].includes(doorRawValue);
+        const doorOffline = doorSensor && (
+            String(doorSensor?.runtime_status || '').toLowerCase() === 'offline'
+            || String(doorSensor?.connection_state || '').toLowerCase() === 'offline'
+            || String(doorSensor?.latest_reading?.status || '').toLowerCase() === 'offline'
+            || doorSensor?.is_online === false
+            || (Number.isFinite(Number(doorSensor?.age_seconds)) && Number(doorSensor?.age_seconds) > 10)
+        );
         const doorStateText = !doorSensor
             ? 'No sensor'
+            : doorOffline
+                ? 'OFFLINE'
             : doorRawValue
                 ? (doorIsOpen ? 'OPEN' : 'CLOSED')
                 : 'Waiting...';
