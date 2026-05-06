@@ -16,6 +16,9 @@
         alertSpeech: {
             lastSpokenAt: 0,
             lastFireSpokenAt: 0
+        },
+        alertRouting: {
+            lastRedirectAt: 0
         }
     };
 
@@ -53,6 +56,70 @@
 
     function navigateToPage(page) {
         window.location.href = resolvePagePath(page);
+    }
+
+    function isDashboardPage() {
+        const path = window.location.pathname.replace(/\\/g, '/');
+        return path.endsWith('/frontend/index.html') || path.endsWith('/index.html') || path === '/';
+    }
+
+    function isLoginPage() {
+        const path = window.location.pathname.replace(/\\/g, '/');
+        return path.endsWith('/login.html');
+    }
+
+    function queueDashboardRedirectForAlert(detail) {
+        if (isDashboardPage() || isLoginPage()) {
+            return;
+        }
+
+        const now = Date.now();
+        if (now - AppState.alertRouting.lastRedirectAt < 5000) {
+            return;
+        }
+
+        AppState.alertRouting.lastRedirectAt = now;
+
+        const kind = String(detail?.kind || 'sensor').toLowerCase();
+        sessionStorage.setItem('jarvis_pending_alert_redirect', JSON.stringify({
+            kind,
+            ts: now
+        }));
+
+        showNotification('Security Alert', 'Alert detected. Redirecting to dashboard.', 'warning');
+        window.setTimeout(() => {
+            const target = resolvePagePath('index.html');
+            const sep = target.includes('?') ? '&' : '?';
+            window.location.href = `${target}${sep}alert=${encodeURIComponent(kind)}&t=${Date.now()}`;
+        }, 900);
+    }
+
+    function showPendingRedirectAlertNotice() {
+        if (!isDashboardPage()) {
+            return;
+        }
+
+        const raw = sessionStorage.getItem('jarvis_pending_alert_redirect');
+        if (!raw) {
+            return;
+        }
+
+        sessionStorage.removeItem('jarvis_pending_alert_redirect');
+
+        let payload = null;
+        try {
+            payload = JSON.parse(raw);
+        } catch (error) {
+            payload = null;
+        }
+
+        const kind = String(payload?.kind || 'sensor').toLowerCase();
+        if (kind === 'access') {
+            showNotification('Access Alert', 'Dashboard focused for an unauthorized access alert.', 'error');
+            return;
+        }
+
+        showNotification('Sensor Alert', 'Dashboard focused for a live sensor alert.', 'warning');
     }
 
     function initParticles() {
@@ -174,7 +241,7 @@
             year: 'numeric',
             month: 'short',
             day: 'numeric'
-        })}${timeZone ? ` · ${timeZone.replace(/_/g, ' ')}` : ''}`;
+        })}${timeZone ? ` � ${timeZone.replace(/_/g, ' ')}` : ''}`;
     }
 
     function ensureLogoutButton() {
@@ -301,6 +368,7 @@
             const now = Date.now();
 
             if (detail.kind === 'access') {
+                queueDashboardRedirectForAlert(detail);
                 playAlertTone();
                 if (now - AppState.alertSpeech.lastSpokenAt < ALERT_SPEECH_COOLDOWN_MS) {
                     return;
@@ -317,6 +385,7 @@
                 return;
             }
             playAlertTone();
+            queueDashboardRedirectForAlert(detail);
 
             const sensors = Array.isArray(detail.sensors) ? detail.sensors : [];
             const hasFireAlert = sensors.some((sensor) => String(sensor?.type || '').toLowerCase() === 'fire');
@@ -496,7 +565,7 @@
         const close = document.createElement('button');
         close.className = 'notification-close';
         close.type = 'button';
-        close.textContent = '×';
+        close.textContent = '�';
         close.addEventListener('click', () => notification.remove());
 
         content.appendChild(strong);
@@ -619,6 +688,7 @@
         updateDateTime();
         window.setInterval(updateDateTime, 1000);
         greetOnDashboard();
+        showPendingRedirectAlertNotice();
         showNotification('System Online', 'JARVIS Security System initialized successfully', 'success');
     }
 
@@ -644,6 +714,8 @@
     window.toggleJarvisChat = window.toggleJarvisChat || toggleJarvisChat;
     window.logoutUser = window.logoutUser || logoutUser;
 })();
+
+
 
 
 
