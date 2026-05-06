@@ -114,12 +114,15 @@ function handleGet($db, array $params): void
     }
 
     $sensors = $db->fetchAll("SELECT * FROM sensors {$where} ORDER BY zone, name", $queryParams);
+    $sensorIds = array_values(array_filter(array_map(
+        static fn (array $sensor): string => (string) ($sensor['sensor_id'] ?? ''),
+        $sensors
+    )));
+    $latestReadingsMap = fetchLatestReadingsMap($db, $sensorIds);
 
     foreach ($sensors as &$sensor) {
-        $sensor['latest_reading'] = $db->fetch(
-            'SELECT value, numeric_value, status, recorded_at FROM sensor_data WHERE sensor_id = :sensor_id ORDER BY recorded_at DESC LIMIT 1',
-            ['sensor_id' => $sensor['sensor_id']]
-        );
+        $sensorId = (string) ($sensor['sensor_id'] ?? '');
+        $sensor['latest_reading'] = $latestReadingsMap[$sensorId] ?? null;
         $sensor = enrichSensorRuntimeState($db, $sensor);
     }
 
@@ -182,6 +185,55 @@ function handlePost($db, array $input): void
         'timestamp_valid' => !empty($timestampMeta['valid']) || empty($timestampMeta['has_timestamp']),
         'recorded_at' => $recordedAt,
     ], 'Sensor data stored successfully');
+}
+
+function fetchLatestReadingsMap($db, array $sensorIds): array
+{
+    $normalizedIds = array_values(array_unique(array_filter(array_map(
+        static fn ($id): string => sanitize((string) $id),
+        $sensorIds
+    ), static fn (string $id): bool => $id !== '')));
+
+    if (empty($normalizedIds)) {
+        return [];
+    }
+
+    $placeholders = [];
+    $params = [];
+    foreach ($normalizedIds as $index => $sensorId) {
+        $key = 'sensor_' . $index;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $sensorId;
+    }
+
+    $inClause = implode(', ', $placeholders);
+    $rows = $db->fetchAll(
+        "SELECT sd.sensor_id, sd.value, sd.numeric_value, sd.status, sd.recorded_at
+         FROM sensor_data sd
+         INNER JOIN (
+            SELECT sensor_id, MAX(id) AS latest_id
+            FROM sensor_data
+            WHERE sensor_id IN ({$inClause})
+            GROUP BY sensor_id
+         ) latest ON latest.latest_id = sd.id",
+        $params
+    );
+
+    $map = [];
+    foreach ($rows as $row) {
+        $sensorId = (string) ($row['sensor_id'] ?? '');
+        if ($sensorId === '') {
+            continue;
+        }
+        $map[$sensorId] = [
+            'value' => $row['value'] ?? null,
+            'numeric_value' => $row['numeric_value'] ?? null,
+            'status' => $row['status'] ?? 'normal',
+            'recorded_at' => $row['recorded_at'] ?? null,
+        ];
+    }
+
+    return $map;
 }
 
 function handlePut($db, array $input): void
