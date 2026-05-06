@@ -1411,27 +1411,36 @@
     function renderThreatTimeline(threats) {
         const timeline = document.getElementById('threatTimeline');
         if (!timeline) return;
+        const itemsRoot = document.getElementById('threatTimelineItems') || timeline;
+        const preserveLayout = String(timeline.dataset.preserveLayout || '').toLowerCase() === 'true';
 
-        timeline.innerHTML = threats.length > 0
+        const markup = threats.length > 0
             ? threats.slice(0, 5).map((threat) => `
                 <div class="threat-item ${escapeHtml(threat.severity || 'low')}">
-                    <div style="display:flex;justify-content:space-between;">
+                    <div class="threat-item-head">
                         <strong>${escapeHtml(threat.type)}</strong>
                         <span class="badge ${getSeverityBadge(threat.severity)}">${escapeHtml(toTitleCase(threat.severity))}</span>
                     </div>
-                    <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:5px;">${escapeHtml(threat.description || 'No description provided.')}</p>
-                    <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:5px;">${escapeHtml(formatTimeAgo(threat.detected_at))}</p>
+                    <p class="threat-item-desc">${escapeHtml(threat.description || 'No description provided.')}</p>
+                    <p class="threat-item-time">${escapeHtml(formatTimeAgo(threat.detected_at))}</p>
                 </div>
             `).join('')
             : `
                 <div class="threat-item low">
-                    <div style="display:flex;justify-content:space-between;">
+                    <div class="threat-item-head">
                         <strong>Threat timeline clear</strong>
                         <span class="badge success">Clear</span>
                     </div>
-                    <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:5px;">No unresolved threats are flowing through the system right now.</p>
+                    <p class="threat-item-desc">No unresolved threats are flowing through the system right now.</p>
                 </div>
             `;
+
+        if (preserveLayout && itemsRoot !== timeline) {
+            itemsRoot.innerHTML = markup;
+            return;
+        }
+
+        timeline.innerHTML = markup;
     }
 
     function normalizeThreatLocation(location) {
@@ -2452,8 +2461,15 @@
         }
     }
 
+    function clearThreatPageTransientState() {
+        if (pageName !== 'threats.html') return;
+
+        sessionStorage.removeItem('jarvis_pending_alert_redirect');
+    }
+
     async function initializePage() {
         await ensureAuthenticated();
+        clearThreatPageTransientState();
 
         if (pageName === 'index.html') {
             await initDashboardPage();
