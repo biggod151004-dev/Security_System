@@ -168,13 +168,15 @@
                         <h3 class="card-title">Threat Timeline</h3>
                     </div>
                     <div class="card-body">
-                        <div class="threat-timeline" id="threatTimeline">
+                        <div class="threat-timeline" id="threatTimeline" data-ui-version="v2" data-preserve-layout="true">
+                            <div id="threatTimelineItems">
                             <div class="threat-item low">
-                                <div style="display:flex;justify-content:space-between;">
+                                <div class="threat-item-head">
                                     <strong>Realtime feed booting</strong>
                                     <span class="badge info">Syncing</span>
                                 </div>
-                                <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:5px;">Timeline will switch to live threat events as soon as the stream arrives.</p>
+                                <p class="threat-item-desc">Timeline will switch to live threat events as soon as the stream arrives.</p>
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -301,11 +303,11 @@
         </div>
     </div>
 
-    <script src="../js/app.js"></script>
-    <script src="../js/voice.js"></script>
-    <script src="../js/jarvis.js"></script>
-    <script src="../js/pages.js"></script>
-    <script src="../js/realtime.js"></script>
+    <script src="../js/app.js?v=20260506-1"></script>
+    <script src="../js/voice.js?v=20260506-1"></script>
+    <script src="../js/jarvis.js?v=20260506-1"></script>
+    <script src="../js/pages.js?v=20260506-1"></script>
+    <script src="../js/realtime.js?v=20260506-1"></script>
 </body>
 </html>
 
