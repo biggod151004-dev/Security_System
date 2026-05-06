@@ -87,7 +87,7 @@
                     <h1>Security Blockchain</h1>
                     <div class="status-indicator">
                         <span class="status-dot"></span>
-                        <span class="status-text">Wallet Not Connected</span>
+                        <span class="status-text">Realtime chain sync initializing</span>
                     </div>
                 </div>
                 <div class="header-actions">
@@ -133,33 +133,33 @@
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
                     </div>
-                    <div class="stat-value">1,247</div>
+                    <div class="stat-value">--</div>
                     <div class="stat-label">Total Blocks</div>
-                    <div class="stat-change positive">Chain growing</div>
+                    <div class="stat-change">Realtime sync</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
                     </div>
-                    <div class="stat-value">100%</div>
+                    <div class="stat-value">--</div>
                     <div class="stat-label">Chain Integrity</div>
-                    <div class="stat-change positive">Verified</div>
+                    <div class="stat-change">Realtime check</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
                     </div>
-                    <div class="stat-value">2 min</div>
+                    <div class="stat-value">--</div>
                     <div class="stat-label">Last Block</div>
-                    <div class="stat-change">Just added</div>
+                    <div class="stat-change">Live feed</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
                     </div>
-                    <div class="stat-value">Amoy</div>
+                    <div class="stat-value">--</div>
                     <div class="stat-label">Network</div>
-                    <div class="stat-change positive">Online</div>
+                    <div class="stat-change">Realtime link</div>
                 </div>
             </section>
 
@@ -212,23 +212,23 @@
                         <div style="display: grid; gap: 15px;">
                             <div style="display: flex; justify-content: space-between; padding: 15px; background: var(--bg-darker); border-radius: 8px;">
                                 <span style="color: var(--text-secondary);">Genesis Block</span>
-                                <span>2024-01-01 00:00:00</span>
+                                <span id="chainStatGenesis">Syncing...</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; padding: 15px; background: var(--bg-darker); border-radius: 8px;">
                                 <span style="color: var(--text-secondary);">Average Block Time</span>
-                                <span style="color: var(--primary-color);">~30 seconds</span>
+                                <span id="chainStatAvgBlockTime" style="color: var(--primary-color);">Syncing...</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; padding: 15px; background: var(--bg-darker); border-radius: 8px;">
                                 <span style="color: var(--text-secondary);">Total Transactions</span>
-                                <span>24,892</span>
+                                <span id="chainStatTotalTx">Syncing...</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; padding: 15px; background: var(--bg-darker); border-radius: 8px;">
                                 <span style="color: var(--text-secondary);">Chain Size</span>
-                                <span>124.5 MB</span>
+                                <span id="chainStatSize">Syncing...</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; padding: 15px; background: var(--bg-darker); border-radius: 8px;">
                                 <span style="color: var(--text-secondary);">Nodes</span>
-                                <span style="color: var(--accent-color);">3 Active</span>
+                                <span id="chainStatNodes" style="color: var(--accent-color);">Syncing...</span>
                             </div>
                         </div>
                     </div>
@@ -243,23 +243,23 @@
                             <div style="padding: 15px; background: var(--bg-darker); border-radius: 8px; border-left: 3px solid var(--accent-color);">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span>Immutability</span>
-                                    <span class="badge success">Active</span>
+                                    <span class="badge info" id="securityImmutabilityBadge">Syncing</span>
                                 </div>
-                                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">All records are cryptographically secured and cannot be altered.</p>
+                                <p id="securityImmutabilityText" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Waiting for realtime chain verification.</p>
                             </div>
                             <div style="padding: 15px; background: var(--bg-darker); border-radius: 8px; border-left: 3px solid var(--primary-color);">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span>Distributed Consensus</span>
-                                    <span class="badge success">Active</span>
+                                    <span class="badge info" id="securityConsensusBadge">Syncing</span>
                                 </div>
-                                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Multiple nodes verify each block before adding to chain.</p>
+                                <p id="securityConsensusText" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Waiting for realtime network sync.</p>
                             </div>
                             <div style="padding: 15px; background: var(--bg-darker); border-radius: 8px; border-left: 3px solid var(--warning-color);">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <span>Tamper Detection</span>
-                                    <span class="badge success">Active</span>
+                                    <span class="badge info" id="securityTamperBadge">Syncing</span>
                                 </div>
-                                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Any modification attempt is immediately detected and flagged.</p>
+                                <p id="securityTamperText" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Waiting for integrity baseline.</p>
                             </div>
                         </div>
                     </div>
