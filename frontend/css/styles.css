@@ -1926,6 +1926,25 @@ h3 { font-size: 1.3rem; }
     background: var(--primary-color);
 }
 
+.threat-item-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.threat-item-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 6px;
+}
+
+.threat-item-time {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 5px;
+}
+
 .threat-analysis-card {
     overflow: hidden;
 }
