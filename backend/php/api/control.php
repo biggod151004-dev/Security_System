@@ -458,7 +458,7 @@ function saveAccessProfiles($db, array $profiles): void
     $normalized = array_values(array_map(static function ($profile) {
         return [
             'name' => trim((string) ($profile['name'] ?? 'Authorized User')),
-            'rfid_uid' => strtoupper(trim((string) ($profile['rfid_uid'] ?? ''))),
+            'rfid_uid' => normalizeRfidUid((string) ($profile['rfid_uid'] ?? '')),
             'fingerprint_id' => normalizeFingerprintId((string) ($profile['fingerprint_id'] ?? '')),
             'role' => trim((string) ($profile['role'] ?? 'User')),
         ];
@@ -474,7 +474,7 @@ function saveAccessProfiles($db, array $profiles): void
 
 function upsertAccessProfile($db, array $input): void
 {
-    $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
+    $rfidUid = normalizeRfidUid((string) ($input['rfid_uid'] ?? ''));
     $fingerprintId = normalizeFingerprintId((string) ($input['fingerprint_id'] ?? ''));
     $name = trim((string) ($input['name'] ?? 'Authorized User'));
     $role = trim((string) ($input['role'] ?? 'User'));
@@ -523,7 +523,7 @@ function upsertAccessProfile($db, array $input): void
 
 function removeAccessProfile($db, array $input): void
 {
-    $rfidUid = strtoupper(trim((string) ($input['rfid_uid'] ?? '')));
+    $rfidUid = normalizeRfidUid((string) ($input['rfid_uid'] ?? ''));
     if ($rfidUid === '') {
         errorResponse('rfid_uid is required');
     }
@@ -581,8 +581,9 @@ function setPendingAccess($db, array $pending): void
 
 function findAccessProfileByRfid(array $profiles, string $rfidUid): ?array
 {
+    $normalizedTarget = normalizeRfidUid($rfidUid);
     foreach ($profiles as $profile) {
-        if (strcasecmp((string) ($profile['rfid_uid'] ?? ''), $rfidUid) === 0) {
+        if (strcasecmp(normalizeRfidUid((string) ($profile['rfid_uid'] ?? '')), $normalizedTarget) === 0) {
             return $profile;
         }
     }
@@ -808,7 +809,7 @@ function readFirstNonEmptyInput(array $input, array $keys): string
 
 function verifyAccess($db, array $input): void
 {
-    $rfidUid = strtoupper(readFirstNonEmptyInput($input, ['rfid_uid', 'rfid', 'uid', 'card_uid']));
+    $rfidUid = normalizeRfidUid(readFirstNonEmptyInput($input, ['rfid_uid', 'rfid', 'uid', 'card_uid']));
     $fingerprintRaw = readFirstNonEmptyInput($input, ['fingerprint_id', 'fingerprint', 'finger_id', 'template_id', 'fingerprint_uid']);
     $fingerprintId = normalizeFingerprintId($fingerprintRaw);
     $source = !empty($input['source']) ? sanitize((string) $input['source']) : 'CONTROL_PANEL';
@@ -1007,6 +1008,17 @@ function normalizeFingerprintNumeric(int $numeric): string
         return sprintf('FP-%03d', $numeric);
     }
     return 'FP-' . $numeric;
+}
+
+function normalizeRfidUid(string $value): string
+{
+    $normalized = strtoupper(trim($value));
+    if ($normalized === '') {
+        return '';
+    }
+
+    // Accept card UIDs entered with spaces, dashes, colons, etc.
+    return preg_replace('/[^A-Z0-9]/', '', $normalized) ?? '';
 }
 
 function normalizeFingerprintId(string $value): string
