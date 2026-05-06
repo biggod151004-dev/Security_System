@@ -6,7 +6,7 @@
 
     const FAST_SENSOR_POLL_MS = 800;
     const FULL_REFRESH_POLL_MS = 1500;
-    const SENSOR_OFFLINE_TIMEOUT_SECONDS = 10;
+    const SENSOR_OFFLINE_TIMEOUT_SECONDS = 120;
 
     const RTState = {
         snapshot: {
@@ -97,6 +97,11 @@
         return sensor?.last_reading || sensor?.latest_reading?.recorded_at || new Date().toISOString();
     }
 
+    function getSensorFreshnessTimeout(sensor) {
+        const timeout = Number(sensor?.freshness_timeout_seconds);
+        return Number.isFinite(timeout) && timeout > 0 ? timeout : SENSOR_OFFLINE_TIMEOUT_SECONDS;
+    }
+
     function appendSensorHistory(sensor) {
         if (!sensor?.sensor_id) {
             return;
@@ -148,7 +153,7 @@
 
         const age = Number(sensor?.age_seconds);
         if (Number.isFinite(age)) {
-            return age <= SENSOR_OFFLINE_TIMEOUT_SECONDS;
+            return age <= getSensorFreshnessTimeout(sensor);
         }
 
         const tsRaw = sensor?.latest_reading?.recorded_at || sensor?.last_reading;
@@ -156,7 +161,7 @@
         const ts = Date.parse(tsRaw);
         if (!Number.isFinite(ts)) return false;
 
-        return ((Date.now() - ts) / 1000) <= SENSOR_OFFLINE_TIMEOUT_SECONDS;
+        return ((Date.now() - ts) / 1000) <= getSensorFreshnessTimeout(sensor);
     }
 
     function isSensorInAlert(sensor) {
