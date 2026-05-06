@@ -220,6 +220,11 @@
         return sensor?.last_reading || sensor?.latest_reading?.recorded_at || null;
     }
 
+    function getSensorFreshnessTimeout(sensor) {
+        const timeout = Number(sensor?.freshness_timeout_seconds);
+        return Number.isFinite(timeout) && timeout > 0 ? timeout : 120;
+    }
+
     function getSensorNumericValue(sensor) {
         const directNumeric = sensor?.latest_reading?.numeric_value;
         if (directNumeric !== null && directNumeric !== undefined && directNumeric !== '') {
@@ -270,7 +275,7 @@
         let isOnline = sensor.is_online === true || connectionState === 'online';
         if (sensor.is_online !== true && sensor.is_online !== false && connectionState !== 'online' && connectionState !== 'offline') {
             const ageSeconds = Number(sensor.age_seconds);
-            isOnline = Number.isFinite(ageSeconds) ? ageSeconds <= 10 : true;
+            isOnline = Number.isFinite(ageSeconds) ? ageSeconds <= getSensorFreshnessTimeout(sensor) : true;
         }
 
         if (runtimeStatus === 'offline' || readingStatus === 'offline' || connectionState === 'offline' || !isOnline) return 'offline';
@@ -472,7 +477,7 @@
         let isOnline = sensor.is_online === true || connectionState === 'online';
         if (sensor.is_online !== true && sensor.is_online !== false && connectionState !== 'online' && connectionState !== 'offline') {
             const ageSeconds = Number(sensor.age_seconds);
-            isOnline = Number.isFinite(ageSeconds) ? ageSeconds <= 10 : true;
+            isOnline = Number.isFinite(ageSeconds) ? ageSeconds <= getSensorFreshnessTimeout(sensor) : true;
         }
 
         if (runtimeStatus === 'offline' || readingStatus === 'offline' || connectionState === 'offline' || !isOnline) return 'offline';
@@ -802,18 +807,57 @@
         return cameras.find((camera) => camera.camera_id === 'CAM-001') || cameras[0];
     }
 
+    function normalizeHttpUrl(value) {
+        const raw = String(value || '').trim();
+        if (!raw || /^https?:\/\/\/+/i.test(raw) || !/^https?:\/\//i.test(raw)) {
+            return '';
+        }
+
+        try {
+            const parsed = new URL(raw);
+            if (!parsed.hostname) return '';
+            return parsed.toString();
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function deriveStreamUrlFromSnapshot(snapshotUrl) {
+        const normalizedSnapshot = normalizeHttpUrl(snapshotUrl);
+        if (!normalizedSnapshot) return '';
+
+        try {
+            const parsed = new URL(normalizedSnapshot);
+            parsed.port = '81';
+            parsed.pathname = '/stream';
+            parsed.search = '';
+            parsed.hash = '';
+            return parsed.toString();
+        } catch (error) {
+            return '';
+        }
+    }
+
     function getCameraStreamUrl(camera) {
         if (!camera) return '';
-        if (camera.stream_url) return camera.stream_url;
-        return camera.ip_address ? `http://${camera.ip_address}:81/stream` : '';
+        const explicitUrl = normalizeHttpUrl(camera.stream_url);
+        if (explicitUrl) return explicitUrl;
+
+        const fallbackFromIp = camera.ip_address ? `http://${camera.ip_address}:81/stream` : '';
+        const normalizedFallback = normalizeHttpUrl(fallbackFromIp);
+        if (normalizedFallback) return normalizedFallback;
+
+        return deriveStreamUrlFromSnapshot(camera.snapshot_url);
     }
 
     function getCameraSnapshotUrl(camera) {
         if (!camera) return '';
-        if (camera.snapshot_url) return camera.snapshot_url;
+        const explicitUrl = normalizeHttpUrl(camera.snapshot_url);
+        if (explicitUrl) return explicitUrl;
+
         if (!camera.ip_address) return '';
         const port = camera.port && Number(camera.port) !== 80 ? `:${camera.port}` : '';
-        return `http://${camera.ip_address}${port}/capture?download=1`;
+        return normalizeHttpUrl(`http://${camera.ip_address}${port}/capture?download=1`);
     }
 
     function withCacheBust(url) {
@@ -1239,7 +1283,7 @@
             || String(doorSensor?.connection_state || '').toLowerCase() === 'offline'
             || String(doorSensor?.latest_reading?.status || '').toLowerCase() === 'offline'
             || doorSensor?.is_online === false
-            || (Number.isFinite(Number(doorSensor?.age_seconds)) && Number(doorSensor?.age_seconds) > 10)
+            || (Number.isFinite(Number(doorSensor?.age_seconds)) && Number(doorSensor?.age_seconds) > getSensorFreshnessTimeout(doorSensor))
         );
         const doorStateText = !doorSensor
             ? 'No sensor'
@@ -1413,6 +1457,8 @@
         if (!timeline) return;
         const itemsRoot = document.getElementById('threatTimelineItems') || timeline;
         const preserveLayout = String(timeline.dataset.preserveLayout || '').toLowerCase() === 'true';
+        const uiVersion = String(timeline.dataset.uiVersion || '').toLowerCase();
+        const isThreatPageV2 = uiVersion === 'v2';
 
         const markup = threats.length > 0
             ? threats.slice(0, 5).map((threat) => `
@@ -1425,7 +1471,15 @@
                     <p class="threat-item-time">${escapeHtml(formatTimeAgo(threat.detected_at))}</p>
                 </div>
             `).join('')
-            : `
+            : (isThreatPageV2 ? `
+                <div class="threat-item low">
+                    <div class="threat-item-head">
+                        <strong>Realtime feed synchronized</strong>
+                        <span class="badge info">Standby</span>
+                    </div>
+                    <p class="threat-item-desc">Threat Timeline is live and waiting for the next event burst.</p>
+                </div>
+            ` : `
                 <div class="threat-item low">
                     <div class="threat-item-head">
                         <strong>Threat timeline clear</strong>
@@ -1433,14 +1487,18 @@
                     </div>
                     <p class="threat-item-desc">No unresolved threats are flowing through the system right now.</p>
                 </div>
-            `;
+            `);
 
         if (preserveLayout && itemsRoot !== timeline) {
-            itemsRoot.innerHTML = markup;
+            if (itemsRoot.innerHTML !== markup) {
+                itemsRoot.innerHTML = markup;
+            }
             return;
         }
 
-        timeline.innerHTML = markup;
+        if (timeline.innerHTML !== markup) {
+            timeline.innerHTML = markup;
+        }
     }
 
     function normalizeThreatLocation(location) {
@@ -1729,8 +1787,8 @@
         const isStreaming = camera.status === 'recording' || camera.recording;
         const streamUrl = getCameraStreamUrl(camera);
         const fallbackSnapshot = PageState.captureHistory.find((capture) => capture.cameraId === camera.camera_id)?.url || getCameraSnapshotUrl(camera);
-        const showLivePreview = Boolean(streamUrl) && (isStreaming || (pageName === 'camera.html' && camera.status !== 'offline'));
-        const mediaUrl = showLivePreview ? streamUrl : withCacheBust(fallbackSnapshot || streamUrl);
+        const showLivePreview = Boolean(streamUrl) && (isStreaming || pageName === 'camera.html');
+        const mediaUrl = showLivePreview ? withCacheBust(streamUrl) : withCacheBust(fallbackSnapshot || streamUrl);
         const snapshotLink = getCameraSnapshotUrl(camera) || fallbackSnapshot;
 
         if (mediaUrl) {
@@ -1954,31 +2012,45 @@
             camera_id: camera.camera_id
         });
 
+        const hardwareTriggered = Boolean(response.data?.hardware_triggered);
+        const telegramSent = Boolean(response.data?.telegram_sent);
+        const hardwareError = String(response.data?.hardware_error || '').trim();
+        const telegramError = String(response.data?.telegram_error || '').trim();
+
         const snapshotUrl = withCacheBust(response.data?.snapshot_url || getCameraSnapshotUrl(camera));
         const capturedAt = response.data?.captured_at || new Date().toISOString();
-        if (snapshotUrl) {
-            const capture = {
-                id: `IMG-${Date.now()}`,
-                cameraId: camera.camera_id,
-                cameraName: camera.name,
-                url: snapshotUrl,
-                capturedAt
-            };
-            addCaptureHistory(capture);
-            renderCameraPageView({
-                ...camera,
-                last_snapshot_at: capturedAt,
-                snapshot_url: response.data?.snapshot_url || camera.snapshot_url
-            });
-            openCaptureModal(capture);
-        } else {
-            renderCameraPageView({
-                ...camera,
-                last_snapshot_at: capturedAt
-            });
+
+        if (hardwareTriggered) {
+            if (snapshotUrl) {
+                const capture = {
+                    id: `IMG-${Date.now()}`,
+                    cameraId: camera.camera_id,
+                    cameraName: camera.name,
+                    url: snapshotUrl,
+                    capturedAt
+                };
+                addCaptureHistory(capture);
+                renderCameraPageView({
+                    ...camera,
+                    last_snapshot_at: capturedAt,
+                    snapshot_url: response.data?.snapshot_url || camera.snapshot_url
+                });
+                openCaptureModal(capture);
+            } else {
+                renderCameraPageView({
+                    ...camera,
+                    last_snapshot_at: capturedAt
+                });
+            }
         }
 
-        notify('Camera', 'Capture command sent to the ESP32-CAM.', 'success');
+        if (!hardwareTriggered) {
+            notify('Camera', hardwareError || 'ESP32-CAM capture failed. Check camera IP, WiFi, or /capture endpoint.', 'error');
+        } else if (!telegramSent) {
+            notify('Camera', telegramError || 'Image captured, but Telegram delivery failed.', 'warning');
+        } else {
+            notify('Camera', 'Image captured and sent to Telegram successfully.', 'success');
+        }
         await refreshLiveData();
     }
 
@@ -2462,7 +2534,7 @@
     }
 
     function clearThreatPageTransientState() {
-        if (pageName !== 'threats.html') return;
+        if (pageName !== 'threats.html' && pageName !== 'sensors.html') return;
 
         sessionStorage.removeItem('jarvis_pending_alert_redirect');
     }
