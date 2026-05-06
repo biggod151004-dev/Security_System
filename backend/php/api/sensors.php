@@ -18,6 +18,7 @@ if (!is_array($input)) {
 
 $db = getDB();
 
+// Keep a wider freshness window so temporary Wi-Fi jitter does not mark sensors offline.
 const SENSOR_OFFLINE_TIMEOUT_SECONDS = 120;
 const SENSOR_TIMESTAMP_MAX_PAST_SECONDS = 900;
 const SENSOR_TIMESTAMP_MAX_FUTURE_SECONDS = 120;
@@ -424,7 +425,7 @@ function getSensorBlueprints(array $input): array
             'location' => $location,
             'zone' => $zone,
             'unit' => 'g',
-            'threshold_alert' => $input['thresholds']['vibration'] ?? 0.5,
+            'threshold_alert' => $input['thresholds']['vibration'] ?? 1.0,
         ],
         'temperature' => [
             'sensor_id' => 'TEMP-001',
@@ -540,6 +541,15 @@ function processSensorEventRules($db, array $sensor, $value, array $input, strin
     $type = (string) $sensor['type'];
     $location = (string) ($sensor['location'] ?? 'Unknown');
     $threshold = isset($sensor['threshold_alert']) ? (float) $sensor['threshold_alert'] : null;
+    if (
+        $type === 'vibration'
+        && isset($input['thresholds'])
+        && is_array($input['thresholds'])
+        && array_key_exists('vibration', $input['thresholds'])
+        && is_numeric($input['thresholds']['vibration'])
+    ) {
+        $threshold = (float) $input['thresholds']['vibration'];
+    }
     $numericValue = is_numeric($value) ? (float) $value : null;
     $textValue = normalizeDisplayValue($type, $value);
 
