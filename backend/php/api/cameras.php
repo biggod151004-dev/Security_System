@@ -154,20 +154,60 @@ function triggerCapture($db, array $input): void
     // --- ESP32 Interaction Logic ---
     // If the camera has an IP address stored, try to trigger capture on the device
     $captureResponse = null;
+    $hardwareTriggered = false;
+    $hardwareError = null;
+    $telegramSent = false;
+    $telegramError = null;
     if (!empty($camera['ip_address'])) {
         $port = !empty($camera['port']) ? (int) $camera['port'] : 80;
         $url = 'http://' . $camera['ip_address'] . ($port !== 80 ? ':' . $port : '') . '/capture';
         $captureResponse = sendCameraCommand($url);
+        $responseData = is_array($captureResponse['data'] ?? null) ? $captureResponse['data'] : [];
+        $httpStatus = (int) ($captureResponse['status_code'] ?? 0);
+        $hardwareTriggered = !empty($captureResponse['ok'])
+            || ($httpStatus >= 200 && $httpStatus < 300)
+            || (!empty($responseData['success']));
+
+        if ($hardwareTriggered) {
+            $telegramSent = !empty($responseData['telegram_sent']);
+            if (!$telegramSent) {
+                $telegramError = !empty($responseData['telegram_error'])
+                    ? (string) $responseData['telegram_error']
+                    : 'Telegram send returned false';
+                logMessage('WARNING', 'Camera capture succeeded but Telegram send failed', [
+                    'camera_id' => $cameraId,
+                    'telegram_error' => $telegramError,
+                    'capture_response' => $responseData,
+                ]);
+            }
+        } else {
+            $hardwareError = !empty($captureResponse['error'])
+                ? (string) $captureResponse['error']
+                : 'ESP32-CAM capture endpoint unreachable or returned non-2xx';
+            logMessage('ERROR', 'Camera capture hardware trigger failed', [
+                'camera_id' => $cameraId,
+                'url' => $url,
+                'hardware_error' => $hardwareError,
+                'http_status' => $captureResponse['status_code'] ?? null,
+            ]);
+        }
+    } else {
+        $hardwareError = 'Camera IP address is not configured';
+        logMessage('ERROR', 'Camera capture skipped because camera IP is missing', [
+            'camera_id' => $cameraId,
+        ]);
     }
     // -- End ESP32 Logic --
 
-    // Update database timestamp
-    $db->update(
-        'cameras',
-        ['last_snapshot_at' => date('Y-m-d H:i:s')],
-        'camera_id = :camera_id',
-        ['camera_id' => $cameraId]
-    );
+    // Update database timestamp only when capture endpoint was triggered successfully.
+    if ($hardwareTriggered) {
+        $db->update(
+            'cameras',
+            ['last_snapshot_at' => date('Y-m-d H:i:s')],
+            'camera_id = :camera_id',
+            ['camera_id' => $cameraId]
+        );
+    }
 
     logCameraAction('capture', $cameraId);
 
@@ -181,7 +221,11 @@ function triggerCapture($db, array $input): void
         'camera_name' => $camera['name'],
         'captured_at' => date('Y-m-d H:i:s'),
         'snapshot_url' => $camera['snapshot_url'] ?? null,
-        'hardware_triggered' => $captureResponse !== null
+        'hardware_triggered' => $hardwareTriggered,
+        'hardware_error' => $hardwareError,
+        'telegram_sent' => $telegramSent,
+        'telegram_error' => $telegramError,
+        'device_response' => $captureResponse['data'] ?? null
     ], 'Capture command sent to ' . $cameraId);
 }
 
@@ -316,17 +360,31 @@ function logCameraAction(string $action, ?string $cameraId): void
     ]);
 }
 
-function sendCameraCommand(string $url): ?array
+function sendCameraCommand(string $url): array
 {
     $responseBody = false;
+    $statusCode = 0;
 
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 5);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         $responseBody = curl_exec($ch);
+        $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
+
+        if ($responseBody === false) {
+            return [
+                'ok' => false,
+                'status_code' => $statusCode,
+                'error' => $curlError !== '' ? $curlError : 'cURL request failed',
+                'body' => null,
+                'data' => null,
+            ];
+        }
     } else {
         $context = stream_context_create([
             'http' => [
@@ -336,30 +394,91 @@ function sendCameraCommand(string $url): ?array
             ],
         ]);
         $responseBody = @file_get_contents($url, false, $context);
-    }
 
-    if ($responseBody === false || $responseBody === null) {
-        return null;
+        if (isset($http_response_header) && is_array($http_response_header)) {
+            foreach ($http_response_header as $headerLine) {
+                if (preg_match('/^HTTP\/\d+(?:\.\d+)?\s+(\d+)/i', (string) $headerLine, $matches)) {
+                    $statusCode = (int) $matches[1];
+                    break;
+                }
+            }
+        }
+
+        if ($responseBody === false || $responseBody === null) {
+            return [
+                'ok' => false,
+                'status_code' => $statusCode,
+                'error' => 'HTTP request failed',
+                'body' => null,
+                'data' => null,
+            ];
+        }
     }
 
     $decoded = json_decode((string) $responseBody, true);
-    return is_array($decoded) ? $decoded : ['response' => (string) $responseBody];
+    $data = is_array($decoded) ? $decoded : null;
+    $ok = $statusCode >= 200 && $statusCode < 300;
+
+    return [
+        'ok' => $ok,
+        'status_code' => $statusCode,
+        'error' => $ok ? null : 'HTTP ' . $statusCode,
+        'body' => (string) $responseBody,
+        'data' => $data,
+    ];
 }
 
 function decorateCameraRecord(array $camera): array
 {
     $port = !empty($camera['port']) ? (int) $camera['port'] : 80;
     $ipAddress = trim((string) ($camera['ip_address'] ?? ''));
+    $streamUrl = normalizeCameraUrl((string) ($camera['stream_url'] ?? ''));
+    $snapshotUrl = normalizeCameraUrl((string) ($camera['snapshot_url'] ?? ''));
 
-    if (empty($camera['stream_url']) && $ipAddress !== '') {
-        $camera['stream_url'] = 'http://' . $ipAddress . ':81/stream';
+    if ($streamUrl === '' && $ipAddress !== '') {
+        $streamUrl = normalizeCameraUrl('http://' . $ipAddress . ':81/stream');
     }
 
-    if (empty($camera['snapshot_url']) && $ipAddress !== '') {
-        $camera['snapshot_url'] = 'http://' . $ipAddress . ($port !== 80 ? ':' . $port : '') . '/capture?download=1';
+    if ($snapshotUrl === '' && $ipAddress !== '') {
+        $snapshotUrl = normalizeCameraUrl('http://' . $ipAddress . ($port !== 80 ? ':' . $port : '') . '/capture?download=1');
     }
+
+    if ($streamUrl === '' && $snapshotUrl !== '') {
+        $parts = parse_url($snapshotUrl);
+        if (is_array($parts) && !empty($parts['host'])) {
+            $scheme = !empty($parts['scheme']) ? $parts['scheme'] : 'http';
+            $host = $parts['host'];
+            $streamUrl = $scheme . '://' . $host . ':81/stream';
+        }
+    }
+
+    $camera['stream_url'] = $streamUrl !== '' ? $streamUrl : null;
+    $camera['snapshot_url'] = $snapshotUrl !== '' ? $snapshotUrl : null;
 
     $camera['recording'] = filter_var($camera['recording'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     return $camera;
+}
+
+function normalizeCameraUrl(string $url): string
+{
+    $url = trim($url);
+    if ($url === '') {
+        return '';
+    }
+
+    if (!preg_match('/^https?:\/\//i', $url)) {
+        return '';
+    }
+
+    if (preg_match('/^https?:\/\/\/+/i', $url)) {
+        return '';
+    }
+
+    $parts = parse_url($url);
+    if (!is_array($parts) || empty($parts['host'])) {
+        return '';
+    }
+
+    return $url;
 }
