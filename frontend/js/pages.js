@@ -860,9 +860,85 @@
         return normalizeHttpUrl(`http://${camera.ip_address}${port}/capture?download=1`);
     }
 
+    function getCameraCommandUrl(camera, path) {
+        if (!camera || !camera.ip_address) return '';
+        const port = camera.port && Number(camera.port) !== 80 ? `:${camera.port}` : '';
+        return normalizeHttpUrl(`http://${camera.ip_address}${port}${path}`);
+    }
+
     function withCacheBust(url) {
         if (!url) return '';
         return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    }
+
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 6000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function triggerDirectCameraCapture(camera) {
+        const captureUrl = withCacheBust(getCameraCommandUrl(camera, '/capture'));
+        if (!captureUrl) {
+            return {
+                ok: false,
+                telegramSent: false,
+                telegramKnown: false,
+                hardwareError: 'Camera IP address is missing in dashboard settings.'
+            };
+        }
+
+        try {
+            const response = await fetchWithTimeout(captureUrl, {
+                method: 'GET',
+                cache: 'no-store'
+            }, 7000);
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                data = null;
+            }
+
+            return {
+                ok: response.ok || Boolean(data?.success),
+                telegramSent: Boolean(data?.telegram_sent),
+                telegramKnown: Boolean(data && Object.prototype.hasOwnProperty.call(data, 'telegram_sent')),
+                telegramError: String(data?.telegram_error || '').trim(),
+                hardwareError: response.ok ? '' : `HTTP ${response.status}`,
+                capturedAt: data?.captured_at || new Date().toISOString()
+            };
+        } catch (error) {
+            // Some camera firmwares may not expose CORS headers for JSON;
+            // no-cors still sends the request so Telegram capture can proceed.
+            try {
+                await fetchWithTimeout(captureUrl, {
+                    method: 'GET',
+                    mode: 'no-cors',
+                    cache: 'no-store'
+                }, 5000);
+                return {
+                    ok: true,
+                    telegramSent: false,
+                    telegramKnown: false,
+                    telegramError: '',
+                    hardwareError: '',
+                    capturedAt: new Date().toISOString(),
+                    usedOpaqueRequest: true
+                };
+            } catch (fallbackError) {
+                return {
+                    ok: false,
+                    telegramSent: false,
+                    telegramKnown: false,
+                    hardwareError: fallbackError?.message || error?.message || 'Direct camera capture request failed.'
+                };
+            }
+        }
     }
 
     function setOptionalLink(id, url) {
@@ -1996,20 +2072,44 @@
             return;
         }
 
-        const response = await apiSend('cameras.php', 'POST', {
-            action: 'capture',
-            camera_id: camera.camera_id
-        });
+        let response = { data: {} };
+        let backendRequestError = '';
+        try {
+            response = await apiSend('cameras.php', 'POST', {
+                action: 'capture',
+                camera_id: camera.camera_id
+            });
+        } catch (error) {
+            backendRequestError = error?.message || 'Backend capture request failed';
+        }
 
         const hardwareTriggered = Boolean(response.data?.hardware_triggered);
-        const telegramSent = Boolean(response.data?.telegram_sent);
-        const hardwareError = String(response.data?.hardware_error || '').trim();
-        const telegramError = String(response.data?.telegram_error || '').trim();
+        let telegramSent = Boolean(response.data?.telegram_sent);
+        let telegramKnown = Object.prototype.hasOwnProperty.call(response.data || {}, 'telegram_sent');
+        let hardwareError = String(response.data?.hardware_error || '').trim();
+        let telegramError = String(response.data?.telegram_error || '').trim();
+        let usedDirectFallback = false;
+
+        let finalHardwareTriggered = hardwareTriggered;
+        if (!finalHardwareTriggered) {
+            const fallback = await triggerDirectCameraCapture(camera);
+            if (fallback.ok) {
+                finalHardwareTriggered = true;
+                usedDirectFallback = true;
+                if (fallback.telegramKnown) {
+                    telegramSent = fallback.telegramSent;
+                    telegramKnown = true;
+                    telegramError = fallback.telegramError || telegramError;
+                }
+            } else {
+                hardwareError = fallback.hardwareError || hardwareError || backendRequestError;
+            }
+        }
 
         const snapshotUrl = withCacheBust(response.data?.snapshot_url || getCameraSnapshotUrl(camera));
         const capturedAt = response.data?.captured_at || new Date().toISOString();
 
-        if (hardwareTriggered) {
+        if (finalHardwareTriggered) {
             if (snapshotUrl) {
                 const capture = {
                     id: `IMG-${Date.now()}`,
@@ -2033,8 +2133,16 @@
             }
         }
 
-        if (!hardwareTriggered) {
+        if (!finalHardwareTriggered) {
             notify('Camera', hardwareError || 'ESP32-CAM capture failed. Check camera IP, WiFi, or /capture endpoint.', 'error');
+        } else if (!telegramKnown) {
+            notify(
+                'Camera',
+                usedDirectFallback
+                    ? 'Capture triggered directly from browser. Telegram status is not readable due to CORS, but photo may still arrive in a few seconds.'
+                    : 'Capture triggered, but Telegram delivery status is unknown.',
+                'warning'
+            );
         } else if (!telegramSent) {
             notify('Camera', telegramError || 'Image captured, but Telegram delivery failed.', 'warning');
         } else {
