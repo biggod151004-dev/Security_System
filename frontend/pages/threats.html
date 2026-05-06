@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -87,7 +87,7 @@
                     <h1>Threat Analysis</h1>
                     <div class="status-indicator">
                         <span class="status-dot" style="background: var(--warning-color);"></span>
-                        <span class="status-text">Loading threats</span>
+                        <span class="status-text">Live threat stream initializing</span>
                     </div>
                 </div>
                 <div class="header-actions">
@@ -102,7 +102,7 @@
                     <div class="stat-icon" style="background: linear-gradient(135deg, rgba(255, 51, 102, 0.2), rgba(255, 51, 102, 0.05));">
                         <svg viewBox="0 0 24 24" style="fill: var(--danger-color);"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99z"/></svg>
                     </div>
-                    <div class="stat-value" style="color: var(--danger-color);">1</div>
+                    <div class="stat-value" style="color: var(--danger-color);">--</div>
                     <div class="stat-label">Critical Threats</div>
                     <div class="stat-change negative">Immediate Action</div>
                 </div>
@@ -110,7 +110,7 @@
                     <div class="stat-icon" style="background: linear-gradient(135deg, rgba(255, 170, 0, 0.2), rgba(255, 170, 0, 0.05));">
                         <svg viewBox="0 0 24 24" style="fill: var(--warning-color);"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
                     </div>
-                    <div class="stat-value" style="color: var(--warning-color);">2</div>
+                    <div class="stat-value" style="color: var(--warning-color);">--</div>
                     <div class="stat-label">Warnings</div>
                     <div class="stat-change">Monitoring</div>
                 </div>
@@ -118,7 +118,7 @@
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
                     </div>
-                    <div class="stat-value">147</div>
+                    <div class="stat-value">--</div>
                     <div class="stat-label">Resolved Today</div>
                     <div class="stat-change positive">Auto-handled</div>
                 </div>
@@ -126,7 +126,7 @@
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
                     </div>
-                    <div class="stat-value">99.7%</div>
+                    <div class="stat-value">--</div>
                     <div class="stat-label">Protection Rate</div>
                     <div class="stat-change positive">Excellent</div>
                 </div>
@@ -154,43 +154,7 @@
                         </thead>
                         <tbody id="threatTableBody">
                             <tr>
-                                <td>#THR-2024-001</td>
-                                <td>Brute Force Attack</td>
-                                <td><span class="badge danger">Critical</span></td>
-                                <td>192.168.1.105</td>
-                                <td>Main Server</td>
-                                <td>5 min ago</td>
-                                <td><span class="badge warning">Analyzing</span></td>
-                                <td>
-                                    <button class="btn btn-danger" style="padding: 5px 10px; font-size: 0.75rem;">Block</button>
-                                    <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.75rem;">Details</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>#THR-2024-002</td>
-                                <td>Suspicious Motion</td>
-                                <td><span class="badge warning">Medium</span></td>
-                                <td>Camera 02</td>
-                                <td>Parking Lot</td>
-                                <td>15 min ago</td>
-                                <td><span class="badge info">Monitoring</span></td>
-                                <td>
-                                    <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.75rem;">View</button>
-                                    <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.75rem;">Dismiss</button>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>#THR-2024-003</td>
-                                <td>Vibration Anomaly</td>
-                                <td><span class="badge warning">Low</span></td>
-                                <td>Vibration Sensor 01</td>
-                                <td>Perimeter North</td>
-                                <td>32 min ago</td>
-                                <td><span class="badge info">Investigating</span></td>
-                                <td>
-                                    <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.75rem;">View</button>
-                                    <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.75rem;">Dismiss</button>
-                                </td>
+                                <td colspan="8" style="text-align:center;color:var(--text-secondary);">Loading live threat stream...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -205,37 +169,12 @@
                     </div>
                     <div class="card-body">
                         <div class="threat-timeline" id="threatTimeline">
-                            <div class="threat-item high">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <strong>Brute Force Attack Detected</strong>
-                                    <span class="badge danger">Critical</span>
-                                </div>
-                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 5px;">Multiple failed login attempts from 192.168.1.105. AI analyzing patterns.</p>
-                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 5px;">5 minutes ago</p>
-                            </div>
-                            <div class="threat-item medium">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <strong>Motion Detected After Hours</strong>
-                                    <span class="badge warning">Warning</span>
-                                </div>
-                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 5px;">Unusual movement detected in parking lot area. Reviewing camera footage.</p>
-                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 5px;">15 minutes ago</p>
-                            </div>
-                            <div class="threat-item medium">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <strong>Perimeter Vibration Alert</strong>
-                                    <span class="badge info">Low</span>
-                                </div>
-                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 5px;">Vibration sensor triggered. Possible environmental cause.</p>
-                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 5px;">32 minutes ago</p>
-                            </div>
                             <div class="threat-item low">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <strong>Failed Access Attempt</strong>
-                                    <span class="badge success">Resolved</span>
+                                <div style="display:flex;justify-content:space-between;">
+                                    <strong>Realtime feed booting</strong>
+                                    <span class="badge info">Syncing</span>
                                 </div>
-                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 5px;">Invalid RFID card presented at main entrance. Access denied.</p>
-                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 5px;">1 hour ago</p>
+                                <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:5px;">Timeline will switch to live threat events as soon as the stream arrives.</p>
                             </div>
                         </div>
                     </div>
@@ -245,7 +184,7 @@
                 <div class="card threat-analysis-card">
                     <div class="card-header">
                         <h3 class="card-title">AI Threat Analysis</h3>
-                        <span class="badge success" id="threatAnalysisBadge">Active</span>
+                        <span class="badge info" id="threatAnalysisBadge">Syncing</span>
                     </div>
                     <div class="card-body threat-analysis-shell" id="threatAnalysisPanel">
                         <div class="threat-radar-shell">
@@ -280,7 +219,7 @@
                         <div class="threat-analysis-copy">
                             <div class="threat-analysis-summary">
                                 <span class="threat-analysis-tag">AI Recommendation</span>
-                                <p id="threatRecommendationText">Threat engine is waiting for live security data.</p>
+                                <p id="threatRecommendationText">Initializing live threat intelligence...</p>
                             </div>
 
                             <div class="threat-analysis-metrics">
